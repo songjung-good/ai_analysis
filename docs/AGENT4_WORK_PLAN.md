@@ -20,7 +20,7 @@ Physical AI·Robotics 기업의 제품이 실제 고객 현장에서 사용되�
 
 | 항목 | 상태 | 확인 내용 |
 |---|---|---|
-| Agent 기본 파일 | 완료 | `run(state)` 인터페이스와 `TOOLS`가 있으며 분석 로직은 `NotImplementedError` 상태 |
+| Agent 실행 함수 | 완료 | `run(state)`에 입력 검증·검색·분석·인용 출처 반환 연결 |
 | State 쓰기 계약 | 완료 | `business_analysis`, `references`만 반환하도록 계약 정의 |
 | 검색 Tool 기반 | 완료 | 공통 `Evidence` 반환, 호출당 최대 5개 검색 결과 |
 | 환경변수 예시 | 완료 | 기준 환경의 변수명 반영, 비밀값은 빈칸 처리 |
@@ -29,7 +29,7 @@ Physical AI·Robotics 기업의 제품이 실제 고객 현장에서 사용되�
 | 3단계 출력 모델 | 완료 | `BusinessAnalysis`와 항목별 모델 정의, 검증 규칙·테스트 작성 |
 | 4단계 검색 전략 | 완료 | `business_search.py`에 입력 검증·질의 3개 생성·호출 한도·출처 병합 구현 |
 | 5단계 프롬프트·구조화 분석 | 완료 | `business_analysis.py`에 근거 기반 프롬프트, 모델 초기화, 구조화 출력·인용 검증 구현 |
-| 6단계 Agent 통합 | 예정 | 검색 함수와 구조화 분석을 `business.py`에 연결 |
+| 6단계 Agent 통합 | 완료 | `business.py` 실행 흐름 구현, 대체 응답으로 병렬 Graph 연결 확인 |
 
 출력 계약과 검색 전략을 구현했다. 실제로 검증하지 않은 항목을 완료로 표시하지 않는다.
 
@@ -122,6 +122,14 @@ uv pip install --python .venv/bin/python -r requirements.txt
 
 ### 6단계: Agent 구현 흐름
 
+`agents/business.py`의 `run(state, search=None, model=None)`에 아래 흐름을 연결했다. 일반 Graph에서는 `run(state)`로 호출하고 테스트에서는 검색 함수와 모델을 주입한다.
+
+- 입력 검증을 먼저 수행한다. 실제 검색을 사용할 때 프로젝트 `.env`를 로딩하고 `TAVILY_API_KEY` 존재를 확인한다.
+- 검색 결과가 있으면 구조화 분석을 1회 수행하고 인용된 Evidence만 반환한다. 기존 State의 `references`를 재반환하지 않는다.
+- 검색 결과가 모두 비면 LLM을 호출하지 않고 `unknown`, 빈 사례·출처 목록, 입력 누락 및 검색 근거 부족을 반환한다.
+- State를 직접 변경하지 않으며 현재 기업의 결과로 `business_analysis`를 덮어쓸 변경분만 반환한다.
+- 검색·LLM·검증 실패는 호출자에 전파한다. 실제 API 접근 권한과 응답 품질은 이후 실기업 실행 단계에서 검증한다.
+
 1. 입력의 기업명과 필요한 분류 정보를 검증한다.
 2. 검색 질의를 생성하고 허용된 `web_search`를 호출한다.
 3. 기업·제품 관련 자료를 정리하고 출처 ID 중복을 제거한다.
@@ -190,12 +198,12 @@ State를 직접 변경하지 않는다. 누적 `references` 전체를 다시 반
 
 - [x] 실제 입력 구조와 누락 처리 계약을 확정했다.
 - [x] 출력 모델을 확정했다.
-- [ ] `business.py`의 `NotImplementedError`를 분석 로직으로 대체했다.
+- [x] `business.py`의 `NotImplementedError`를 분석 로직으로 대체했다.
 - [ ] 모든 사실 주장을 제공된 출처 ID와 연결했다.
-- [ ] 미확인 정보와 검색·모델 호출 실패를 구분했다.
+- [x] 미확인 정보와 검색·모델 호출 실패를 구분했다.
 - [ ] 핵심 판단 사례를 대체 응답 테스트로 검증했다.
 - [ ] 실제 기업 1개 결과를 원문과 대조했다.
-- [ ] Graph에 연결해 State 충돌 없이 실행했다.
+- [x] 대체 검색·LLM 응답으로 Graph에 연결해 State 충돌 없이 실행했다.
 
 ## 6. 작업 기록
 
@@ -212,6 +220,7 @@ State를 직접 변경하지 않는다. 누적 `references` 전체를 다시 반
 | 2026-09-30 | 4단계: 검색 | 입력 검증, 주제별 질의 생성, 검색 3회·결과 5개 한도, 출처 병합 및 오류 처리 구현 | 완료 | 전체 테스트 27개 통과. 대체 검색 함수로 호출 횟수·출처·실패 처리 검증, 실제 API 호출 없음 | 5단계: 분석 프롬프트·structured output 연결 |
 
 | 2026-09-30 | 5단계: 구조화 분석 | system 프롬프트, ChatOpenAI 초기화, Pydantic 출력·출처 ID 검증, 입력 부족 보존 구현 | 완료 | 전체 테스트 31개 통과. LLM 대체 응답 사용, 실제 API 호출 없음 | 6단계: `business.py`에서 입력·검색·분석·사용 출처 반환 연결 |
+| 2026-09-30 | 6단계: Agent 통합 | `run(state)`의 검색·분석 연결, 인용 출처 선별, 근거가 없을 때 LLM 호출 생략 구현 | 완료 | 전체 테스트 37개 통과. 소유 키·State 불변·인용·오류·병렬 Graph 검증. 실제 API 호출 없음 | 7단계: 시연·유료 운영·모순 등 판단 사례 검증 보강 |
 
 3단계 산출물: `src/ai_investment/agents/business_models.py`, `tests/test_business_models.py`. 모델 검증은 출처의 사실성을 보증하지 않는다. 출처 ID 존재 검증은 5단계에서 구현했다.
 

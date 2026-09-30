@@ -50,7 +50,7 @@
 
 입력 예시는 `tests/fixtures/business_input_complete.json`, `tests/fixtures/business_input_name_only.json`에 있다. 가상 기업 데이터이며 검색 근거나 분석 완료 결과를 의미하지 않는다. 입력 검증은 `agents/business_search.py`의 `build_search_plan`에 구현했다.
 
-`build_search_plan`은 State 변경 없이 질의 3개와 입력 부족 목록을 반환한다. `collect_evidence`는 `web_search`를 최대 3회, 회당 최대 5개 결과로 호출한다. 동일 출처 ID는 추가 발췌문을 보존해 병합하고 검색 예외는 전파한다. 두 함수는 6단계에서 `business.py`에 연결하며 최종 `references` 선별은 분석 이후 수행한다.
+`build_search_plan`은 State 변경 없이 질의 3개와 입력 부족 목록을 반환한다. `collect_evidence`는 `web_search`를 최대 3회, 회당 최대 5개 결과로 호출한다. 동일 출처 ID는 추가 발췌문을 보존해 병합하고 검색 예외는 전파한다. 두 함수는 `business.py`에 연결했으며 최종 `references` 선별은 분석 이후 수행한다.
 
 ## 4번 Agent 출력 계약
 
@@ -76,7 +76,9 @@
 
 `agents/business_analysis.py`의 `analyze_business`는 입력, Evidence, 입력 부족 목록을 받아 `BusinessAnalysis`를 반환한다. ChatOpenAI의 function calling 출력에 Pydantic 검증과 출처 ID 존재 검증을 적용한다. 주입한 모델로 테스트할 수 있으며 호출·검증 오류는 전파한다.
 
-프롬프트는 검색 내용을 데이터로 취급하고 자료 안의 지시를 따르지 않도록 한다. 미확인 수치를 만들지 않으며 유료 PoC·실제 유료 운영을 구분한다. 제공된 출처 범위에서만 분석하고 입력 부족 목록을 보존한다. `business.py` 연결과 실제 사용 출처 선별은 6단계에서 수행한다.
+프롬프트는 검색 내용을 데이터로 취급하고 자료 안의 지시를 따르지 않도록 한다. 미확인 수치를 만들지 않으며 유료 PoC·실제 유료 운영을 구분한다. 제공된 출처 범위에서만 분석하고 입력 부족 목록을 보존한다.
+
+`business.run(state)`은 입력 검증, 검색, 분석, 인용 출처 선별을 수행해 `business_analysis`와 이번에 사용한 `references`만 반환한다. 검색 결과가 모두 없으면 LLM 호출 없이 `unknown`과 정보 부족을 기록한다. 검색·모델 호출·검증 실패는 그대로 전파한다. 테스트는 `run(state, search=대체함수, model=대체모델)`로 외부 API 없이 실행하며 다른 Agent 출력이나 기존 출처를 변경하지 않는다.
 
 ## Tool 권한
 

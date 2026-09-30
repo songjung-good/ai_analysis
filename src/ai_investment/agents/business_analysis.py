@@ -50,8 +50,7 @@ def create_analysis_model():
     return ChatOpenAI(model=os.environ["OPENAI_MODEL"], timeout=60, max_retries=0)
 
 
-def validate_citations(result: BusinessAnalysis, evidence: list[Evidence]) -> None:
-    available = {item.source_id for item in evidence}
+def cited_source_ids(result: BusinessAnalysis) -> set[str]:
     cited = set(result.stage_source_ids)
     for items in (
         result.customer_cases, result.deployment_costs, result.deployment_effects,
@@ -59,6 +58,12 @@ def validate_citations(result: BusinessAnalysis, evidence: list[Evidence]) -> No
     ):
         for item in items:
             cited.update(item.source_ids)
+    return cited
+
+
+def validate_citations(result: BusinessAnalysis, evidence: list[Evidence]) -> None:
+    available = {item.source_id for item in evidence}
+    cited = cited_source_ids(result)
     unknown = cited - available
     if unknown:
         raise ValueError(f"Unknown evidence source IDs: {', '.join(sorted(unknown))}")
