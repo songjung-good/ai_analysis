@@ -50,6 +50,7 @@ market_analysis = {
     "differentiation": {"strengths": [Claim], "weaknesses": [Claim], "entry_barriers": [Claim]},
     "missing_info": [str],           # 근거가 없어 판단하지 못한 항목
     "evidence_level": "high" | "medium" | "low",
+    "source_tiers": {source_id: 1 | 2 | 3},  # 인용한 출처의 등급, 아래 출처 정책 참고
     "validation": {...},             # 코드가 제거·교정한 항목
     "retrieval": {"market" | "demand" | "competition": {"queries", "used_web", "evidence_count"}},
 }
@@ -83,13 +84,29 @@ LLM 출력을 그대로 믿지 않고 반환 전에 다음을 적용합니다. �
 | 검사 | 처리 | `validation` 키 |
 |---|---|---|
 | 존재하지 않는 `source_id` 인용 | 해당 id 제거, 유효한 인용이 없으면 항목 제거 | `dropped_uncited_items` |
-| 수치가 인용 근거 본문에 없음 | 수치 제거 | `unverified_figures` |
+| 수치가 인용한 1~2등급 근거에 없음 | 값과 단위가 함께 적힌 다른 1~2등급 근거로 인용 교정 | `recited_figures` |
+| 수치가 어떤 1~2등급 근거에도 없음 | 수치 제거 | `unverified_figures` |
+| 수치가 3등급 출처에만 있음 | 수치 제거 | `low_tier_figures` |
+| 같은 지표·연도·지역·단위의 값이 1.5배 넘게 다름 | 등급이 높은 출처의 값만 남김 | `conflicting_figures` |
 | 경쟁사명이 인용 근거에 없음 | 이름이 실린 다른 근거로 인용 교정 | `recited_competitors` |
 | 경쟁사명이 어떤 근거에도 없음 | 경쟁사 제거 | `unverified_competitors` |
 | 스타트업맵 산업이 `profile.industry`와 다름 | 경쟁사 제거 | `industry_mismatched_competitors` |
 | 평가 대상 자신이 경쟁사에 포함 | 제거 | `excluded_self_as_competitor` |
 
+수치 비교는 원문 표기 차이를 허용합니다. "132억 5천만"은 132.5억, "18억 5,800만"은 18.58억으로 읽고, LLM이 "542 (천 대)"를 542000대로 풀어 쓴 경우도 인용 근거와 대조합니다.
+
 `evidence_level`은 LLM 판단이 아니라 CRAG 결과로 계산합니다. 시장·수요·경쟁 3개 주제 중 관련 근거가 2개 이상인 주제가 3개면 `high`, 2개면 `medium`, 그 이하면 `low`입니다.
+
+## 출처 정책
+
+| 등급 | 대상 | 수치 사용 |
+|---|---|---|
+| 1 | 적재한 PDF(`url` 없음), 공공기관(`.go.kr`, `.re.kr`, `.gov`), 국제기구·산업기관(IFR, OECD, 한국로봇산업진흥원 등) | O |
+| 2 | 언론, 증권사·컨설팅, 데이터 제공사(Statista, MarketsandMarkets, IDC 등) | O |
+| 3 | 그 외(기업 홈페이지, 시장조사 보고서 판매 사이트 등) | X, 서술·경쟁사 근거로만 사용 |
+| 제외 | 블로그(tistory, 네이버 블로그, blogspot, brunch, medium 등) | 웹 결과에서 제거 |
+
+웹 fallback은 1~2등급 도메인으로 먼저 검색하고, 결과가 3개 미만일 때만 일반 검색으로 넓힙니다. 도메인 목록은 `agents/market.py`의 `TIER1_DOMAINS`, `TIER2_DOMAINS`, `BLOCKED_DOMAINS`입니다. `tools/web.py`는 공용이라 건드리지 않았으며, 다른 Agent도 같은 기준이 필요하면 공용으로 옮기는 것을 제안합니다.
 
 ## 투자 판단 Agent 연결 (제안)
 
@@ -122,6 +139,8 @@ PYTHONPATH=src python -m ai_investment.ingest market             # Chroma 적재
 
 ## 알려진 한계
 
-- 웹 fallback은 출처 등급을 가리지 않습니다. 오래된 블로그의 수치가 들어올 수 있으므로 `Evidence.url`과 `published_at`을 함께 확인합니다.
-- 검증은 수치가 근거에 적혀 있는지만 확인하고, 수치의 의미를 올바르게 옮겼는지는 확인하지 않습니다.
-- 한 번 실행에 LLM 호출이 4~13회(주제별 관련성 평가·재작성·웹 평가 + 최종 분석)이며 `gpt-5-nano` 기준 2~3분이 걸립니다.
+- 검증은 수치가 근거에 적혀 있는지만 확인하고, 지표명(metric)을 올바르게 붙였는지는 확인하지 않습니다. 예: 산업용 로봇 전체 성장률을 협동로봇 성장률로 적는 경우.
+- `gpt-5-nano`는 단위 환산이나 자릿수 실수("380억"을 "38억")를 자주 합니다. 검증이 이런 수치를 걸러 내므로 틀린 수치는 남지 않지만, 실행에 따라 남는 수치 개수가 달라집니다.
+- 스타트업맵에 대응 분야가 없는 `subdomain`(휴머노이드 등)은 LLM이 경쟁사를 고르므로 실행마다 결과가 달라지고, 비어 있을 수도 있습니다. profile에 `industry`·`tech_type`이 생기면 해결됩니다.
+- 웹 결과 대부분에 발행일이 없어 최신성으로 거르지 못합니다.
+- 한 번 실행에 LLM 호출이 5~14회(주제별 관련성 평가·재작성·웹 평가, 최종 분석, 경쟁사 설명)이며 `gpt-5-nano`(`reasoning_effort=low`) 기준 30~50초가 걸립니다.

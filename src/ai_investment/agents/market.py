@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
 
@@ -36,6 +37,60 @@ MAP_SEGMENTS: dict[str, tuple[str | None, tuple[str, ...]]] = {
     "서비스 로봇": ("서비스·생활", ("로봇",)),
     "로봇 AI 소프트웨어": (None, ("AI·SW 플랫폼",)),
 }
+
+
+# Web source policy. Tier 1: our PDF corpus, public bodies, international organizations.
+# Tier 2: press, securities/consulting firms, established data providers.
+# Tier 3: everything else (vendor sites, SEO market-report sites) - usable for context,
+# never for market figures. Blogs are dropped from web results entirely.
+TIER1_DOMAINS = {
+    "ifr.org", "oecd.org", "worldbank.org", "iea.org", "imf.org", "kiria.org", "kiat.or.kr",
+    "nipa.kr", "kotra.or.kr", "spri.kr", "nia.or.kr", "kosis.kr",
+}
+TIER1_SUFFIXES = (".go.kr", ".re.kr", ".gov", ".gov.uk", ".europa.eu")
+TIER2_DOMAINS = {
+    "reuters.com", "bloomberg.com", "ft.com", "wsj.com", "nikkei.com", "cnbc.com",
+    "yna.co.kr", "hankyung.com", "mk.co.kr", "etnews.com", "zdnet.co.kr", "sedaily.com",
+    "mt.co.kr", "edaily.co.kr", "chosun.com", "joongang.co.kr", "donga.com", "thelec.kr",
+    "irobotnews.com", "thevc.kr", "crunchbase.com",
+    "mckinsey.com", "bcg.com", "deloitte.com", "pwc.com", "goldmansachs.com", "morganstanley.com",
+    "statista.com", "marketsandmarkets.com", "idc.com", "gartner.com",
+}
+BLOCKED_DOMAINS = {
+    "blogspot.com", "tistory.com", "blog.naver.com", "post.naver.com", "contents.premium.naver.com",
+    "brunch.co.kr", "medium.com", "velog.io", "wordpress.com",
+}
+MIN_TRUSTED_RESULTS = 3
+CONFLICT_RATIO = 1.5
+
+
+def _domain(url: str | None) -> str:
+    host = urlparse(url or "").netloc.lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def _matches(host: str, domains: set[str]) -> bool:
+    return any(host == d or host.endswith("." + d) for d in domains)
+
+
+def source_tier(item: Evidence) -> int:
+    if not item.url:
+        return 1  # local PDF corpus (market_docs)
+    host = _domain(item.url)
+    if _matches(host, TIER1_DOMAINS) or host.endswith(TIER1_SUFFIXES):
+        return 1
+    return 2 if _matches(host, TIER2_DOMAINS) else 3
+
+
+def trusted_first_search(query: str, search: Callable[..., list[Evidence]]) -> list[Evidence]:
+    """Search tier 1-2 domains first; widen to the open web only if that finds too little.
+    Blog results are dropped either way."""
+    trusted = search(query, domains=sorted(TIER1_DOMAINS | TIER2_DOMAINS), max_results=5)
+    results = list(trusted)
+    if len(trusted) < MIN_TRUSTED_RESULTS:
+        seen = {item.source_id for item in results}
+        results += [item for item in search(query, max_results=5) if item.source_id not in seen]
+    return [item for item in results if not _matches(_domain(item.url), BLOCKED_DOMAINS)]
 
 
 class MarketFigure(BaseModel):
@@ -121,6 +176,11 @@ class Validation(BaseModel):
     recited_competitors: list[str] = Field(description="인용을 이름이 실린 근거로 교정한 경쟁사")
     industry_mismatched_competitors: list[str] = Field(description="스타트업맵 산업 분류가 달라 제거한 경쟁사")
     unverified_figures: list[str] = Field(description="인용 근거에 값이 없어 제거한 수치")
+    low_tier_figures: list[str] = Field(description="3등급 출처에만 있어 제거한 수치")
+    recited_figures: list[str] = Field(description="값과 단위가 함께 적힌 1~2등급 근거로 인용을 교정한 수치")
+    conflicting_figures: list[str] = Field(
+        description="같은 지표·연도·지역·단위인데 값이 1.5배 넘게 달라 하나만 남긴 수치"
+    )
     excluded_self_as_competitor: bool
 
 
@@ -132,6 +192,9 @@ class MarketAnalysisOutput(MarketAnalysis):
         description="시장·수요·경쟁 3개 주제 중 근거가 충분한 주제 수: 3=high, 2=medium, 이하=low"
     )
     competitor_landscape: CompetitorLandscape
+    source_tiers: dict[str, int] = Field(
+        description="인용한 source_id별 출처 등급. 1: 자체 PDF·공공·국제기구, 2: 언론·증권·컨설팅·데이터, 3: 기타"
+    )
     validation: Validation
     retrieval: dict[Topic, TopicRetrieval]
 
@@ -296,17 +359,127 @@ def _value_in_text(value: float, text: str) -> bool:
     )
 
 
+_TRAILING_UNIT = r"\s*(달러|원|대|엔|유로)?"
+KOREAN_COMPOUND = [
+    # (pattern, (major, minor) -> value in the major unit)
+    (re.compile(r"(\d[\d,]*)\s*조\s*(\d[\d,]*)\s*억" + _TRAILING_UNIT), lambda a, b: (a + b / 10_000, "조")),
+    (re.compile(r"(\d[\d,]*)\s*억\s*(\d[\d,]*)\s*천\s*만" + _TRAILING_UNIT), lambda a, b: (a + b / 10, "억")),
+    (re.compile(r"(\d[\d,]*)\s*억\s*(\d[\d,]*)\s*만" + _TRAILING_UNIT), lambda a, b: (a + b / 10_000, "억")),
+]
+
+
+def with_decimal_forms(text: str) -> str:
+    """Append decimal spellings of Korean compound amounts so figure values can match:
+    '132억 5천만 달러' -> '132.5억 달러', '18억 5,800만' -> '18.58억', '6조 8,158억' -> '6.8158조'."""
+    forms = []
+    for pattern, convert in KOREAN_COMPOUND:
+        for match in pattern.finditer(text):
+            a, b = (float(group.replace(",", "")) for group in match.groups()[:2])
+            value, unit = convert(a, b)
+            trailing = f" {match.group(3)}" if match.group(3) else ""
+            forms.append(f"{value:g}{unit}{trailing}")
+    return f"{text} {' '.join(forms)}" if forms else text
+
+
+# The LLM often expands "542 (천 대)" into 542000 대 despite the prompt; accept a value
+# that matches the source after dividing by a unit scale (천, 만, 백만, 억, 십억, 조).
+UNIT_SCALES = (1, 1e3, 1e4, 1e6, 1e8, 1e9, 1e12)
+SCALE_WORDS = ((1e3, "천"), (1e4, "만"), (1e6, "백만"), (1e8, "억"), (1e12, "조"))
+
+
+def _unit_multiplier(unit: str) -> float:
+    """'천 대' -> 1e3, '억 달러' -> 1e8, 'billion USD' -> 1e9, '%' -> 1."""
+    for word, multiplier in (("백만", 1e6), ("십억", 1e9), ("천", 1e3), ("만", 1e4), ("억", 1e8), ("조", 1e12),
+                             ("billion", 1e9), ("million", 1e6), ("thousand", 1e3)):
+        if word in unit.lower():
+            return multiplier
+    return 1
+
+
+def _value_in_source(figure: MarketFigure, text: str) -> bool:
+    """Match the value as written, or the same quantity at another scale:
+    542000 대 or 542 천 대 vs '542 (천 대)'; 64.542 천 대 vs '64,542대'."""
+    text = with_decimal_forms(text)
+    absolute = figure.value * _unit_multiplier(figure.unit)
+    candidates = {figure.value} | {
+        round(absolute / scale, 6) for scale in UNIT_SCALES if abs(absolute) / scale >= 1
+    }
+    return any(_value_in_text(value, text) for value in candidates)
+
+
+def _describe_figure(figure: MarketFigure) -> str:
+    return f"{figure.metric} {figure.value:g}{figure.unit} ({figure.year})"
+
+
+def _value_with_unit_in_text(figure: MarketFigure, text: str) -> bool:
+    """Stricter than _value_in_text: value and unit written together, e.g. '380억 달러'."""
+    compact = lambda value: re.sub(r"\s+", "", value)
+    body = compact(with_decimal_forms(text))
+    spellings = {f"{figure.value:g}"}
+    if figure.value == int(figure.value):
+        spellings.add(f"{int(figure.value):,}")
+    # 1.4e6 대 -> '140만대', 542000 대 -> '542천대'
+    for scale, word in SCALE_WORDS:
+        if abs(figure.value) >= scale:
+            spellings.add(f"{figure.value / scale:g}{word}")
+    return any(compact(v + figure.unit) in body for v in spellings)
+
+
 def _verified_figures(
     figures: Sequence[MarketFigure], evidence: Mapping[str, Evidence]
-) -> tuple[list[MarketFigure], list[str]]:
-    kept, dropped = [], []
+) -> tuple[list[MarketFigure], list[str], list[str], list[str]]:
+    """Keep figures whose value appears in a cited tier 1-2 source; cite only those sources.
+    A figure citing the wrong chunk is re-pointed to a tier 1-2 source that states the
+    same value with its unit.
+
+    Returns (kept, unverified, low_tier, recited).
+    """
+    kept, unverified, low_tier, recited = [], [], [], []
     for figure in figures:
-        cited_text = " ".join(evidence[sid].excerpt for sid in figure.source_ids if sid in evidence)
-        if _value_in_text(figure.value, cited_text):
-            kept.append(figure)
+        cited = [evidence[sid] for sid in figure.source_ids if sid in evidence]
+        backing = [item for item in cited if _value_in_source(figure, item.excerpt)]
+        trusted = [item for item in backing if source_tier(item) <= 2]
+        if not trusted:
+            trusted = [
+                item for item in evidence.values()
+                if source_tier(item) <= 2 and _value_with_unit_in_text(figure, item.excerpt)
+            ]
+            if trusted:
+                recited.append(_describe_figure(figure))
+        if trusted:
+            kept.append(figure.model_copy(update={"source_ids": [item.source_id for item in trusted]}))
+        elif backing:
+            low_tier.append(_describe_figure(figure))
         else:
-            dropped.append(f"{figure.metric} {figure.value:g}{figure.unit} ({figure.year})")
-    return kept, dropped
+            unverified.append(_describe_figure(figure))
+    return kept, unverified, low_tier, recited
+
+
+def _figure_key(figure: MarketFigure) -> tuple[str, str, str, str]:
+    compact = lambda text: re.sub(r"\s+", "", text).lower()
+    return (compact(figure.metric), compact(figure.year), compact(figure.region), compact(figure.unit))
+
+
+def resolve_conflicts(
+    figures: Sequence[MarketFigure], evidence: Mapping[str, Evidence]
+) -> tuple[list[MarketFigure], list[str]]:
+    """Same metric/year/region/unit with values over CONFLICT_RATIO apart: keep the
+    better-tier source (first on a tie) and report the pair."""
+    kept: dict[tuple[str, str, str, str], MarketFigure] = {}
+    conflicts = []
+    tier = lambda f: min(source_tier(evidence[sid]) for sid in f.source_ids)
+    for figure in figures:
+        key = _figure_key(figure)
+        other = kept.get(key)
+        if other is None:
+            kept[key] = figure
+            continue
+        low, high = sorted((abs(other.value), abs(figure.value)))
+        if low == 0 or high / low > CONFLICT_RATIO:
+            conflicts.append(f"{_describe_figure(other)} vs {figure.value:g}{figure.unit}")
+        if tier(figure) < tier(other):
+            kept[key] = figure
+    return list(kept.values()), conflicts
 
 
 def _latest_per_metric(figures: Sequence[MarketFigure]) -> list[MarketFigure]:
@@ -330,16 +503,22 @@ def curate(
       a wrong citation is re-pointed to the retrieved evidence that names the company
     - a company the startup map files under another industry than profile.industry
       is not a competitor for the same customer
-    - a figure's value must appear in the evidence it cites
+    - a figure's value must appear in a cited tier 1-2 source (see source_tier)
+    - conflicting values for the same metric keep the better-tier source
     - one representative figure per metric, capped at MAX_FIGURES
     """
     target_keys = _name_keys(startup_name)
     competitors, unverified, recited, mismatched = [], [], [], []
     excluded_self = False
+    seen: list[set[str]] = []
     for competitor in analysis.competitors:
-        if _name_keys(competitor.name) & target_keys:
+        keys = _name_keys(competitor.name)
+        if keys & target_keys:
             excluded_self = True
             continue
+        if any(keys & other for other in seen):
+            continue  # same company listed twice ('Unitree' / 'Unitree ')
+        seen.append(keys)
         industries = _map_industries(competitor.name, evidence)
         if industry and industries and industry not in industries:
             mismatched.append(competitor.name)
@@ -354,8 +533,10 @@ def curate(
             recited.append(competitor.name)
         else:
             unverified.append(competitor.name)
-    market_size, unverified_size = _verified_figures(analysis.market_size, evidence)
-    growth, unverified_growth = _verified_figures(analysis.growth, evidence)
+    market_size, unverified_size, low_size, recited_size = _verified_figures(analysis.market_size, evidence)
+    growth, unverified_growth, low_growth, recited_growth = _verified_figures(analysis.growth, evidence)
+    market_size, conflicts_size = resolve_conflicts(market_size, evidence)
+    growth, conflicts_growth = resolve_conflicts(growth, evidence)
     curated = analysis.model_copy(
         update={
             "market_size": _latest_per_metric(market_size),
@@ -368,6 +549,9 @@ def curate(
         "recited_competitors": recited,
         "industry_mismatched_competitors": mismatched,
         "unverified_figures": unverified_size + unverified_growth,
+        "low_tier_figures": low_size + low_growth,
+        "recited_figures": recited_size + recited_growth,
+        "conflicting_figures": conflicts_size + conflicts_growth,
         "excluded_self_as_competitor": excluded_self,
     }
 
@@ -480,6 +664,8 @@ def _prompt(
 규칙:
 - 모든 수치와 주장에는 근거의 [source_id]를 source_ids로 붙입니다. 근거에 없는 수치는 쓰지 않습니다.
 - 수치는 근거에 적힌 값과 단위, 기준 연도를 그대로 옮기고 전망치는 year에 '(전망)'을 붙입니다.
+  달러·원 단위로 환산하지 않습니다. '132억 5천만 달러'는 value=132.5, unit='억 달러', '1,500억 원'은 value=1500, unit='억 원'입니다.
+- 수치는 PDF 자료, 공공·국제기구, 언론·증권사·컨설팅 출처에서만 가져옵니다. 기업 홈페이지나 시장조사 보고서 판매 사이트의 수치는 쓰지 않습니다.
 {competitor_rule}
 - 평가 대상 기업 자신은 경쟁사에 넣지 않습니다. 대기업 자회사·계열사·상장사는 '대기업·상장사'로 분류합니다.
 - 세부 분야에 맞는 근거가 없으면 상위 시장 수치로 대체하되 metric에 상위 시장임을 밝히고 missing_info에 기록합니다.
@@ -517,7 +703,7 @@ def analyze(state: GraphState, *, llm, search=None, web=None) -> NodeResult:
         retrieve=search or (lambda query: search_market_docs(query, k=5)),
         grade=llm_grader(llm),
         rewrite=llm_rewriter(llm),
-        web_search=web or (lambda query: web_search(query, max_results=5)),
+        web_search=web or (lambda query: trusted_first_search(query, web_search)),
     )
     retrieve = search or (lambda query: search_market_docs(query, k=5))
     segment = resolve_segment(profile)
@@ -550,8 +736,10 @@ def analyze(state: GraphState, *, llm, search=None, web=None) -> NodeResult:
         competitors = analysis.competitors[:MAX_COMPETITORS]
     analysis = analysis.model_copy(update={"competitors": competitors})
 
+    cited = _cited_ids(analysis) | {sid for row in rows for sid in row.source_ids}
     output = MarketAnalysisOutput(
         **analysis.model_dump(),
+        source_tiers={sid: source_tier(evidence[sid]) for sid in sorted(cited)},
         subdomain=str(profile["subdomain"]),
         evidence_level=_evidence_level(results),
         competitor_landscape=CompetitorLandscape(
@@ -572,7 +760,7 @@ def analyze(state: GraphState, *, llm, search=None, web=None) -> NodeResult:
             for topic, result in results.items()
         },
     )
-    cited = _cited_ids(output) | {sid for row in rows for sid in row.source_ids}
+
     return {
         "market_analysis": output.model_dump(),
         "references": [item for sid, item in evidence.items() if sid in cited],

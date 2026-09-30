@@ -190,6 +190,15 @@ class MarketAgentTests(unittest.TestCase):
         self.assertEqual([c.name for c in curated.competitors], ["Tommoro Robotics", "Figure AI"])
         self.assertEqual(checks["industry_mismatched_competitors"], ["Navifra"])
 
+    def test_curate_drops_duplicate_competitor_names(self):
+        competitor = self._analysis().competitors[0]
+        analysis = self._analysis().model_copy(update={"competitors": [
+            competitor, competitor.model_copy(update={"name": "Tommoro Robotics "}),
+        ]})
+        docs = {"b": evidence("b", excerpt="Tommoro Robotics")}
+        curated, _ = market.curate(analysis, docs, "PLAIF")
+        self.assertEqual([c.name for c in curated.competitors], ["Tommoro Robotics"])
+
     def test_curate_keeps_latest_actual_figure_per_metric(self):
         figure = self._analysis().market_size[0]
         series = [
@@ -323,6 +332,116 @@ class LandscapeTests(unittest.TestCase):
         self.assertEqual(landscape["evidence_sentences"]["Deft Robotics"], [])
         self.assertIn("1,500억", landscape["evidence_sentences"]["Holiday Robotics(홀리데이로보틱스)"][0])
         self.assertIn("map", {e.source_id for e in result["references"]})
+
+
+
+def web_evidence(source_id, url, excerpt="근거"):
+    return Evidence(source_id=source_id, title=url, url=url, excerpt=excerpt)
+
+
+class SourcePolicyTests(unittest.TestCase):
+    def test_tiers(self):
+        self.assertEqual(market.source_tier(evidence("pdf")), 1)
+        self.assertEqual(market.source_tier(web_evidence("a", "https://www.kiet.re.kr/research/1")), 1)
+        self.assertEqual(market.source_tier(web_evidence("b", "https://ifr.org/news")), 1)
+        self.assertEqual(market.source_tier(web_evidence("c", "https://www.etnews.com/2025")), 2)
+        self.assertEqual(market.source_tier(web_evidence("d", "https://www.gminsights.com/robot")), 3)
+
+    def test_trusted_first_widens_only_when_short_and_drops_blogs(self):
+        calls = []
+
+        def search(query, domains=None, max_results=5):
+            calls.append(domains is not None)
+            if domains:
+                return [web_evidence("t1", "https://www.etnews.com/1")]
+            return [
+                web_evidence("t1", "https://www.etnews.com/1"),
+                web_evidence("blog", "https://someone.tistory.com/2"),
+                web_evidence("mill", "https://www.gminsights.com/3"),
+            ]
+
+        results = market.trusted_first_search("협동로봇 시장", search)
+        self.assertEqual(calls, [True, False])
+        self.assertEqual([e.source_id for e in results], ["t1", "mill"])
+
+        calls.clear()
+        full = lambda q, domains=None, max_results=5: [web_evidence(f"t{i}", f"https://mk.co.kr/{i}") for i in range(3)]
+        market.trusted_first_search("협동로봇 시장", lambda *a, **k: (calls.append(True), full(*a, **k))[1])
+        self.assertEqual(len(calls), 1)
+
+    def _figure(self, value, sid, year="2024"):
+        return market.MarketFigure(metric="협동로봇 시장 규모", value=value, unit="억 달러", year=year, region="세계", source_ids=[sid])
+
+    def test_figures_need_tier_1_or_2_backing(self):
+        docs = {
+            "news": web_evidence("news", "https://www.hankyung.com/1", "시장 규모 19억 달러"),
+            "mill": web_evidence("mill", "https://www.researchnester.com/1", "시장 규모 59.28억 달러"),
+        }
+        kept, unverified, low, _ = market._verified_figures(
+            [self._figure(19, "news"), self._figure(59.28, "mill"), self._figure(7, "news")], docs
+        )
+        self.assertEqual([f.value for f in kept], [19])
+        self.assertEqual(low, ["협동로봇 시장 규모 59.28억 달러 (2024)"])
+        self.assertEqual(unverified, ["협동로봇 시장 규모 7억 달러 (2024)"])
+
+    def test_korean_compound_amounts_match_decimal_values(self):
+        self.assertEqual(
+            market.with_decimal_forms("2024년 20억 3천만 달러에서 132억 5천만 달러, 18억 5,800만 대, 6조 8,158억 원"),
+            "2024년 20억 3천만 달러에서 132억 5천만 달러, 18억 5,800만 대, 6조 8,158억 원 6.8158조 원 20.3억 달러 132.5억 달러 18.58억 대",
+        )
+        docs = {"pdf": evidence("pdf", excerpt="휴머노이드 시장은 2029년 132억 5천만 달러로 성장")}
+        kept, unverified, _, _ = market._verified_figures([self._figure(132.5, "pdf", "2029(전망)")], docs)
+        self.assertEqual((len(kept), unverified), (1, []))
+
+    def test_wrong_chunk_citation_is_repointed_only_with_value_and_unit(self):
+        docs = {
+            "chunk0": evidence("chunk0", excerpt="모건스탠리의 휴머노이드 100 분석"),
+            "chunk1": evidence("chunk1", excerpt="골드만삭스는 2035년까지 380억 달러에 이를 것으로 전망"),
+            "noise": evidence("noise", excerpt="2023년 설치 380대"),
+        }
+        kept, unverified, _, recited = market._verified_figures(
+            [self._figure(380, "chunk0", "2035(전망)"), self._figure(38, "chunk0", "2030")], docs
+        )
+        self.assertEqual([f.source_ids for f in kept], [["chunk1"]])
+        self.assertEqual(recited, ["협동로봇 시장 규모 380억 달러 (2035(전망))"])
+        self.assertEqual(unverified, ["협동로봇 시장 규모 38억 달러 (2030)"])
+
+        shipments = market.MarketFigure(metric="출하량", value=1.4e6, unit="대", year="2035", region="세계", source_ids=["chunk0"])
+        docs["chunk2"] = evidence("chunk2", excerpt="로봇 출하량은 4배 증가하여 140만 대에 도달")
+        kept, _, _, _ = market._verified_figures([shipments], docs)
+        self.assertEqual([f.source_ids for f in kept], [["chunk2"]])
+
+    def test_expanded_units_still_match_source(self):
+        docs = {"ifr": evidence("ifr", excerpt="(1,000 units) 천 대: 2023년 541, 2024년 542")}
+        figure = market.MarketFigure(metric="설치 대수", value=542000, unit="대", year="2024", region="세계", source_ids=["ifr"])
+        kept, unverified, _, _ = market._verified_figures([figure, figure.model_copy(update={"value": 543000})], docs)
+        self.assertEqual([f.value for f in kept], [542000])
+        self.assertEqual(unverified, ["설치 대수 543000대 (2024)"])
+
+        cobots = {"ifr": evidence("ifr", excerpt="협동로봇 2024년 64,542대")}
+        scaled = figure.model_copy(update={"value": 64.542, "unit": "천 대"})
+        kept, _, _, _ = market._verified_figures([scaled], cobots)
+        self.assertEqual(len(kept), 1)
+
+    def test_repoints_korean_compound_amount_with_unit(self):
+        docs = {
+            "chunk0": evidence("chunk0", excerpt="휴머노이드 생태계 분석"),
+            "chunk1": evidence("chunk1", excerpt="2029년 132억 5천만 달러로 성장할 전망"),
+        }
+        kept, _, _, recited = market._verified_figures([self._figure(132.5, "chunk0", "2029(전망)")], docs)
+        self.assertEqual([f.source_ids for f in kept], [["chunk1"]])
+        self.assertEqual(len(recited), 1)
+
+    def test_conflicting_values_keep_better_tier(self):
+        docs = {
+            "news": web_evidence("news", "https://www.mk.co.kr/1"),
+            "pdf": evidence("pdf"),
+        }
+        kept, conflicts = market.resolve_conflicts(
+            [self._figure(59.28, "news"), self._figure(19.9, "pdf"), self._figure(21, "pdf", year="2025")], docs
+        )
+        self.assertEqual([(f.value, f.year) for f in kept], [(19.9, "2024"), (21, "2025")])
+        self.assertEqual(conflicts, ["협동로봇 시장 규모 59.28억 달러 (2024) vs 19.9억 달러"])
 
 
 if __name__ == "__main__":
