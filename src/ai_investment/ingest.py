@@ -23,6 +23,9 @@ MANIFEST_KEYS = ("title", "publisher", "published_at", "url")
 TRANSCRIPT_PAGE = re.compile(r"^## p\.(\d+)( replace)?\s*$", re.MULTILINE)
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 MEANINGFUL_CHAR = re.compile(r"[0-9A-Za-z가-힣]")
+# Transcript sections (## / ### / ####) are split first so one chunk does not mix
+# sections: startup map p.7 buried "맺으며" under "(4) AI·SW 플랫폼" (rank 3 -> 1).
+SEPARATORS = ["\n## ", "\n### ", "\n#### ", "\n\n", "\n", " ", ""]
 # PDF control characters used as spaces (SPRi headers) and private-use bullet glyphs
 NOISE_CHAR = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\ue000-\uf8ff]")
 
@@ -165,7 +168,7 @@ def split_documents(spec: CollectionSpec, documents: list[Any]) -> list[Any]:
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=spec.chunk_size, chunk_overlap=spec.chunk_overlap
+        chunk_size=spec.chunk_size, chunk_overlap=spec.chunk_overlap, separators=SEPARATORS
     )
     chunks = []
     for document in documents:

@@ -20,6 +20,13 @@ class RetrievalEvalTests(unittest.TestCase):
         self.assertAlmostEqual(recall, 2 / 3)
         self.assertAlmostEqual(mrr, (1 + 1 / 3) / 3)
 
+    def test_content_hit_needs_half_of_answer_sentences(self):
+        from ai_investment.retrieval_eval import contains_answer
+
+        answer = "협동로봇 설치는 64,542대였다. 전년 대비 12% 늘었다. 비중은 11.9%로 올랐다."
+        self.assertTrue(contains_answer("### 제목\n협동로봇 설치는 64,542대였다.\n전년 대비 12% 늘었다.", answer))
+        self.assertFalse(contains_answer("같은 페이지의 다른 문단. 비중은 11.9%로 올랐다.", answer))
+
     def test_language_follows_dominant_script(self):
         self.assertEqual(chunk_language("협동로봇 설치 대수 Cobot"), "ko")
         self.assertEqual(chunk_language("Annual installations of industrial robots 542"), "en")

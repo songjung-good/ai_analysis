@@ -1,8 +1,8 @@
 """Retrieval evaluation following design section B-3.
 
-    # 1) (question, answer chunk) ground truth: 20 Korean + 10 English chunks
+    # 1) questions from 20 Korean + 10 English chunks; the answer is the chunk's page
     PYTHONPATH=src python -m ai_investment.retrieval_eval questions market
-    # 2) Recall@5 / MRR@5 per retriever and embedding model
+    # 2) content- and page-level Recall@5 / MRR@5 per retriever and embedding model
     PYTHONPATH=src python -m ai_investment.retrieval_eval score market --models kure bge-m3 e5
 """
 
@@ -42,13 +42,16 @@ MODELS = {
     "e5": EmbeddingModel("intfloat/multilingual-e5-large", "query: ", "passage: "),
 }
 
-QUALITATIVE_QUESTIONS = [
-    "휴머노이드 시장 성장률은?",
-    "2024년 전 세계 산업용 로봇 설치 대수는?",
-    "한국의 제조업 로봇 밀도는?",
-    "국내 물류 자율주행 로봇 스타트업은 어디가 있나?",
-    "서비스 로봇 중 가장 많이 설치된 용도는?",
-]
+# (question, answer document title prefix, answer page). Checked by hand against the PDFs.
+DOMAIN_QUESTIONS = {
+    "market": [
+        ("휴머노이드 시장 성장률은?", "피지컬 AI의 현황과 시사점", 17),
+        ("2024년 전 세계 산업용 로봇 설치 대수는?", "World Robotics 2025", 8),
+        ("한국의 제조업 로봇 밀도는?", "2026 피지컬 AI 스타트업맵", 7),
+        ("국내 물류 자율주행 로봇 스타트업은 어디가 있나?", "2026 피지컬 AI 스타트업맵", 8),
+        ("서비스 로봇 중 가장 많이 설치된 용도는?", "World Robotics 2025", 29),
+    ],
+}
 
 
 def chunk_language(text: str) -> str:
@@ -93,9 +96,38 @@ def generate_questions(chunks: Sequence[Any], llm) -> list[dict[str, Any]]:
                 "lang": chunk_language(chunk.page_content),
                 "title": chunk.metadata["title"],
                 "page": chunk.metadata["page"] + 1,
+                "answer_text": chunk.page_content,
             }
         )
     return items
+
+
+def page_key(title: str, page: int) -> str:
+    """Answer identity that survives re-chunking (1-based page)."""
+    return f"{title}#p{page}"
+
+
+SENTENCE_BREAK = re.compile(r"(?<=[.!?다])\s+|\n+")
+MIN_SENTENCE_CHARS = 10
+CONTENT_HIT_RATIO = 0.5
+
+
+def answer_sentences(text: str) -> list[str]:
+    compact = lambda s: re.sub(r"\s+", " ", s).strip()
+    return [s for part in SENTENCE_BREAK.split(text) if len(s := compact(part)) >= MIN_SENTENCE_CHARS]
+
+
+def contains_answer(chunk: str, answer_text: str) -> bool:
+    """True if the chunk holds at least half of the answer chunk's sentences.
+
+    Survives re-chunking, unlike positional chunk ids, and is stricter than a page match:
+    a sibling chunk from the same page does not count.
+    """
+    sentences = answer_sentences(answer_text)
+    if not sentences:
+        raise ValueError("answer_text has no sentences")
+    body = re.sub(r"\s+", " ", chunk)
+    return sum(s in body for s in sentences) / len(sentences) >= CONTENT_HIT_RATIO
 
 
 def recall_mrr(ranked: Sequence[Sequence[str]], answers: Sequence[str], k: int = K) -> tuple[float, float]:
@@ -150,11 +182,14 @@ def _bm25(chunks: Sequence[Any]) -> Callable[[str], list[Any]]:
 def score(
     spec: CollectionSpec, questions: Sequence[dict[str, Any]], model_keys: Sequence[str]
 ) -> list[dict[str, Any]]:
+    """Score by answer content (primary) and answer page (lenient).
+
+    Chunk ids are positional (source, page, index), so after re-chunking the same id
+    can point to different text. Content matching survives re-chunking; page matching
+    also credits a sibling chunk that may not hold the answer.
+    """
     chunks = split_documents(spec, load_documents(spec))
-    known = {c.metadata["source_id"] for c in chunks}
-    stale = [q["chunk_id"] for q in questions if q["chunk_id"] not in known]
-    if stale:
-        raise ValueError(f"{len(stale)} answer chunks no longer exist; regenerate questions")
+    pages = [page_key(q["title"], q["page"]) for q in questions]
 
     retrievers: dict[str, Callable[[str], list[Any]]] = {"bm25": _bm25(chunks)}
     for key in model_keys:
@@ -165,31 +200,51 @@ def score(
 
     rows = []
     for name, retrieve in retrievers.items():
-        ranked = [[d.metadata["source_id"] for d in retrieve(q["question"])] for q in questions]
+        results = [retrieve(q["question"]) for q in questions]
+        ranked = {
+            "content": [
+                ["answer" if contains_answer(d.page_content, q["answer_text"]) else "other" for d in r]
+                for r, q in zip(results, questions)
+            ],
+            "page": [[page_key(d.metadata["title"], d.metadata["page"] + 1) for d in r] for r in results],
+        }
+        answers = {"content": ["answer"] * len(questions), "page": pages}
         row: dict[str, Any] = {"retriever": name}
-        for group in ("ko", "en", "all"):
-            idx = [i for i, q in enumerate(questions) if group == "all" or q["lang"] == group]
-            recall, mrr = recall_mrr([ranked[i] for i in idx], [questions[i]["chunk_id"] for i in idx])
-            row[group] = {"recall@5": round(recall, 3), "mrr@5": round(mrr, 3), "n": len(idx)}
+        for level in ("content", "page"):
+            for group in ("ko", "en", "all"):
+                idx = [i for i, q in enumerate(questions) if group == "all" or q["lang"] == group]
+                recall, mrr = recall_mrr(
+                    [ranked[level][i] for i in idx], [answers[level][i] for i in idx]
+                )
+                row[f"{level}/{group}"] = {"recall@5": round(recall, 3), "mrr@5": round(mrr, 3), "n": len(idx)}
         rows.append(row)
     return rows
 
 
 def qualitative(spec: CollectionSpec) -> list[dict[str, Any]]:
-    """Top-5 of the production market search for team review."""
+    """Production search top-5 for the domain questions, with the answer page's rank."""
     from .tools.rag import search_market_docs, search_tech_docs
 
     search = search_market_docs if spec.name == COLLECTIONS["market"].name else search_tech_docs
-    return [
-        {
-            "question": question,
-            "results": [
-                {"title": e.title, "page": e.page, "excerpt": e.excerpt[:160].replace("\n", " ")}
-                for e in search(question, k=K)
-            ],
-        }
-        for question in QUALITATIVE_QUESTIONS
-    ]
+    rows = []
+    for question, title, page in DOMAIN_QUESTIONS.get(spec.root.name, []):
+        results = search(question, k=K)
+        rank = next(
+            (i + 1 for i, e in enumerate(results) if e.title.startswith(title) and e.page == page),
+            None,
+        )
+        rows.append(
+            {
+                "question": question,
+                "answer": f"{title} p.{page}",
+                "answer_rank": rank,
+                "results": [
+                    {"title": e.title, "page": e.page, "excerpt": e.excerpt[:160].replace("\n", " ")}
+                    for e in results
+                ],
+            }
+        )
+    return rows
 
 
 def _questions_path(spec: CollectionSpec) -> Path:

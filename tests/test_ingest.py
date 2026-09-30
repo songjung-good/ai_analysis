@@ -69,6 +69,21 @@ class MergeTests(unittest.TestCase):
         )
 
 
+class SplitTests(unittest.TestCase):
+    def test_sections_start_new_chunks_when_page_exceeds_chunk_size(self):
+        from langchain_core.documents import Document
+
+        from ai_investment.ingest import split_documents
+
+        text = "### (4) AI·SW 플랫폼\n" + "플랫폼 기업 설명. " * 80 + "\n\n### 맺으며\n" + "로봇 밀도 1,012대. " * 20
+        chunks = split_documents(
+            CollectionSpec("test", Path("."), 1000, 150),
+            [Document(page_content=text, metadata={"source": "a.pdf", "page": 6})],
+        )
+        self.assertTrue(any(c.page_content.startswith("### 맺으며") for c in chunks))
+        self.assertFalse(any("AI·SW" in c.page_content and "맺으며" in c.page_content for c in chunks))
+
+
 class ManifestTests(unittest.TestCase):
     def _spec(self, root: Path, manifest: dict) -> CollectionSpec:
         (root / "raw").mkdir()
