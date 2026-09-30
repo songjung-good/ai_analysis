@@ -11,10 +11,15 @@ def _results(payload: object) -> Sequence[Mapping[str, Any]]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, Mapping)]
     if isinstance(payload, Mapping):
-        results = payload.get("results", [])
+        if "error" in payload:
+            error = payload["error"]
+            if isinstance(error, Exception):
+                raise error
+            raise RuntimeError(f"Tavily search failed: {error}")
+        results = payload.get("results")
         if isinstance(results, list):
             return [item for item in results if isinstance(item, Mapping)]
-    return []
+    raise ValueError("Unexpected Tavily response: expected a results list")
 
 
 def _to_evidence(payload: object, max_results: int) -> list[Evidence]:
@@ -46,6 +51,16 @@ def web_search(
         raise ValueError("max_results must be between 1 and 5")
 
     from langchain_tavily import TavilySearch
+    from langchain_core.tools import ToolException
 
-    tool = TavilySearch(max_results=max_results, include_domains=domains or [])
-    return _to_evidence(tool.invoke({"query": query}), max_results)
+    tool = TavilySearch(
+        max_results=max_results, include_domains=domains or [], handle_tool_error=False
+    )
+    try:
+        payload = tool.invoke({"query": query})
+    except ToolException as exc:
+        # TavilySearch represents a successful zero-hit search as a ToolException.
+        if str(exc).startswith("No search results found for '"):
+            return []
+        raise
+    return _to_evidence(payload, max_results)
