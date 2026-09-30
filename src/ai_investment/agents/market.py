@@ -24,7 +24,18 @@ Topic = Literal["market", "demand", "competition"]
 MAX_FIGURES = 4
 MAX_COMPETITORS = 6
 # Startup map transcript line: "- 제조·산업 로봇 스타트업 (Robotics): A, B(비), ..."
-MAP_LINE = re.compile(r"^- (?P<industry>\S+) .+? 스타트업 \(.+?\): (?P<names>.+)$", re.MULTILINE)
+MAP_LINE = re.compile(
+    r"^- (?P<industry>\S+) (?P<tech>.+?) 스타트업 \(.+?\): (?P<names>.+)$", re.MULTILINE
+)
+# profile.subdomain (agents/profile.py CustomerProfile) -> startup map (industry, tech types).
+# Subdomains the map does not classify (휴머노이드, 로봇 부품·하드웨어, 기타) fall back to the LLM.
+MAP_SEGMENTS: dict[str, tuple[str | None, tuple[str, ...]]] = {
+    "산업용·제조 로봇": ("제조·산업", ("로봇",)),
+    "물류 로봇": ("물류·유통", ("로봇", "자율주행")),
+    "자율주행·모빌리티": ("모빌리티·교통", ("자율주행",)),
+    "서비스 로봇": ("서비스·생활", ("로봇",)),
+    "로봇 AI 소프트웨어": (None, ("AI·SW 플랫폼",)),
+}
 
 
 class MarketFigure(BaseModel):
@@ -50,6 +61,18 @@ class Competitor(BaseModel):
     source_ids: list[str]
 
 
+class CompetitorDetail(BaseModel):
+    name: str = Field(description="주어진 기업명 그대로")
+    type: Literal["국내 스타트업", "해외 스타트업", "대기업·상장사"]
+    product: str
+    target_customer: str
+    differentiator: str = Field(description="평가 대상 기업과 비교한 차이")
+
+
+class CompetitorDetails(BaseModel):
+    items: list[CompetitorDetail]
+
+
 class Differentiation(BaseModel):
     strengths: list[Claim]
     weaknesses: list[Claim]
@@ -64,6 +87,26 @@ class MarketAnalysis(BaseModel):
     competitors: list[Competitor]
     differentiation: Differentiation
     missing_info: list[str] = Field(description="근거를 찾지 못해 판단할 수 없는 항목")
+
+
+class LandscapeRow(BaseModel):
+    industry: str
+    tech_type: str
+    companies: list[str]
+    source_ids: list[str]
+
+
+class CompetitorLandscape(BaseModel):
+    """스타트업맵에서 코드로 뽑은 같은 분야 기업 전체. 같은 DB면 실행마다 같다."""
+
+    segment: str | None = Field(description="'제조·산업 로봇'처럼 조회한 스타트업맵 분야, 대응 분야가 없으면 None")
+    rows: list[LandscapeRow]
+    company_count: int = Field(description="같은 분야 국내 스타트업 수(경쟁 강도 지표)")
+    selected: list[str] = Field(description="competitors로 상세 분석한 기업, 선정 순서")
+    evidence_sentences: dict[str, list[str]] = Field(
+        description="선정 기업마다 코드가 근거에서 찾은 문장. LLM 요약과 무관하게 항상 같다"
+    )
+    other_mentioned: list[str] = Field(description="LLM이 근거에서 추가로 언급한 기업(검증됨, 상세 분석 제외)")
 
 
 class TopicRetrieval(BaseModel):
@@ -88,6 +131,7 @@ class MarketAnalysisOutput(MarketAnalysis):
     evidence_level: Literal["high", "medium", "low"] = Field(
         description="시장·수요·경쟁 3개 주제 중 근거가 충분한 주제 수: 3=high, 2=medium, 이하=low"
     )
+    competitor_landscape: CompetitorLandscape
     validation: Validation
     retrieval: dict[Topic, TopicRetrieval]
 
@@ -107,14 +151,71 @@ def build_questions(startup: Mapping[str, Any], profile: Mapping[str, Any]) -> d
     subdomain = str(profile["subdomain"])
     customer = _known(profile.get("paying_customer")) or "주요 고객"
     problem = _known(profile.get("customer_problem")) or f"{subdomain} 자동화"
-    segment = " ".join(
-        str(value) for value in (profile.get("industry"), profile.get("tech_type")) if value
-    ) or subdomain
+    resolved = resolve_segment(profile)
+    segment = _segment_label(resolved) if resolved else subdomain
     return {
         "market": f"{subdomain} 시장 규모 설치 대수 성장률 전망",
         "demand": f"{customer} {problem} 수요 요인 인력 부족 비용 도입",
         "competition": f"{segment} 스타트업 경쟁사 {problem}",
     }
+
+
+def resolve_segment(profile: Mapping[str, Any]) -> tuple[str | None, tuple[str, ...]] | None:
+    """Explicit profile.industry/tech_type win over the subdomain mapping."""
+    if profile.get("industry") or profile.get("tech_type"):
+        tech = profile.get("tech_type")
+        return profile.get("industry"), (str(tech),) if tech else ()
+    return MAP_SEGMENTS.get(str(profile["subdomain"]))
+
+
+def _segment_label(segment: tuple[str | None, tuple[str, ...]]) -> str:
+    industry, techs = segment
+    return " ".join(part for part in (industry, "·".join(techs)) if part)
+
+
+def fetch_landscape(
+    segment: tuple[str | None, tuple[str, ...]], search
+) -> tuple[list[LandscapeRow], dict[str, Evidence], dict[str, Evidence]]:
+    """Fixed-query lookups (no LLM): map rows of the segment, and narrative text about it.
+
+    Returns (rows, map evidence, narrative evidence).
+    """
+    industry, techs = segment
+    rows: dict[tuple[str, str], LandscapeRow] = {}
+    map_evidence: dict[str, Evidence] = {}
+    for tech in techs or ("",):
+        query = " ".join(part for part in (industry, tech, "스타트업") if part)
+        for item in search(query):
+            for match in MAP_LINE.finditer(item.excerpt):
+                if industry and match["industry"] != industry:
+                    continue
+                if techs and match["tech"] not in techs:
+                    continue
+                key = (match["industry"], match["tech"])
+                if key not in rows:
+                    names = [name.strip() for name in match["names"].split(",") if name.strip()]
+                    rows[key] = LandscapeRow(
+                        industry=key[0], tech_type=key[1], companies=names, source_ids=[item.source_id]
+                    )
+                    map_evidence[item.source_id] = item
+    narrative_query = " ".join(part for part in (industry, *techs, "스타트업 투자 유치 사례") if part)
+    narrative = {item.source_id: item for item in search(narrative_query) if not MAP_LINE.search(item.excerpt)}
+    return list(rows.values()), map_evidence, narrative
+
+
+def select_competitors(
+    rows: Sequence[LandscapeRow], narrative: Mapping[str, Evidence], startup_name: str
+) -> list[str]:
+    """Companies also described in narrative text first, then map order; target excluded."""
+    target = _name_keys(startup_name)
+    candidates = [
+        name for row in rows for name in row.companies if not (_name_keys(name) & target)
+    ]
+    mentions = {
+        name: sum(_mentioned(name, item.excerpt) for item in narrative.values()) for name in candidates
+    }
+    ranked = sorted(range(len(candidates)), key=lambda i: (-mentions[candidates[i]], i))
+    return [candidates[i] for i in ranked][:MAX_COMPETITORS]
 
 
 def _validate_input(state: GraphState) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
@@ -259,7 +360,7 @@ def curate(
         update={
             "market_size": _latest_per_metric(market_size),
             "growth": _latest_per_metric(growth),
-            "competitors": competitors[:MAX_COMPETITORS],
+            "competitors": competitors,
         }
     )
     return curated, {
@@ -269,6 +370,72 @@ def curate(
         "unverified_figures": unverified_size + unverified_growth,
         "excluded_self_as_competitor": excluded_self,
     }
+
+
+SENTENCE_BREAK = re.compile(r"(?<=[.!?다])\s+|\n+")
+
+
+def company_snippets(name: str, evidence: Mapping[str, Evidence]) -> list[tuple[str, str]]:
+    """(source_id, sentence) pairs that name the company, excluding bare map lists."""
+    snippets = []
+    for sid, item in evidence.items():
+        for sentence in SENTENCE_BREAK.split(item.excerpt):
+            sentence = sentence.strip()
+            if len(sentence) >= 10 and not MAP_LINE.match(sentence) and _mentioned(name, sentence):
+                snippets.append((sid, sentence))
+    return snippets
+
+
+def _stub(name: str, source_ids: Sequence[str]) -> Competitor:
+    return Competitor(
+        name=name, type="국내 스타트업", product="근거 없음", target_customer="근거 없음",
+        differentiator="근거 없음", source_ids=list(source_ids),
+    )
+
+
+def describe_competitors(
+    llm,
+    startup: Mapping[str, Any],
+    selected: Sequence[str],
+    rows: Sequence[LandscapeRow],
+    evidence: Mapping[str, Evidence],
+) -> list[Competitor]:
+    """Selected companies in order. Code finds the sentences about each company; the LLM
+    only rewrites those sentences. No sentences -> '근거 없음' without an LLM call."""
+    row_sources = {name: row.source_ids for row in rows for name in row.companies}
+    snippets = {name: company_snippets(name, evidence) for name in selected}
+    described = [name for name in selected if snippets[name]]
+    details: list[CompetitorDetail] = []
+    if described:
+        blocks = "\n\n".join(
+            f"### {name}\n" + "\n".join(f"- {sentence}" for _, sentence in snippets[name])
+            for name in described
+        )
+        details = llm.with_structured_output(CompetitorDetails).invoke(
+            f"""평가 대상 기업 {startup["name"]}({startup.get("product") or "제품 정보 없음"})의 경쟁사를 정리합니다.
+기업마다 아래 문장에 적힌 내용만으로 product, target_customer, differentiator를 채우세요.
+문장에 없는 항목은 '근거 없음'으로 쓰고 지어내지 않습니다. name은 제목의 표기를 그대로 씁니다.
+스타트업맵에 실린 기업은 '국내 스타트업'입니다.
+
+{blocks}"""
+        ).items
+    competitors = []
+    for name in selected:
+        detail = next((d for d in details if _name_keys(d.name) & _name_keys(name)), None)
+        cited = list(dict.fromkeys([*row_sources[name], *(sid for sid, _ in snippets[name])]))
+        if detail is None:
+            competitors.append(_stub(name, row_sources[name]))
+        else:
+            competitors.append(
+                Competitor(**detail.model_dump(exclude={"name"}), name=name, source_ids=cited)
+            )
+    return competitors
+
+
+def other_competitors(verified: Sequence[Competitor], selected: Sequence[str]) -> list[str]:
+    """Verified competitors the main analysis named outside the code selection."""
+    keys = [_name_keys(name) for name in selected]
+    return [c.name for c in verified if not any(_name_keys(c.name) & k for k in keys)]
 
 
 def _cited_ids(analysis: MarketAnalysis) -> set[str]:
@@ -288,25 +455,38 @@ def _prompt(
     startup: Mapping[str, Any],
     profile: Mapping[str, Any],
     results: Mapping[Topic, CragResult],
+    selected: Sequence[str],
+    landscape_evidence: Sequence[Evidence],
 ) -> str:
     sections = "\n\n".join(
         f"## {topic}: {result.question}\n{format_evidence(result.evidence) or '(근거 없음)'}"
         for topic, result in results.items()
     )
+    if landscape_evidence:
+        sections += f"\n\n## landscape: 스타트업맵 같은 분야 기업과 관련 본문\n{format_evidence(landscape_evidence)}"
+    if selected:
+        competitor_rule = (
+            f"- 주요 경쟁사({', '.join(selected)})는 별도로 정리하므로 competitors에 넣지 않습니다. "
+            "근거에 이 목록 밖의 경쟁사가 있을 때만 최대 3개를 competitors에 넣습니다."
+        )
+    else:
+        competitor_rule = (
+            "- 경쟁사는 최대 6개이며 같은 세부 분야의 국내 스타트업을 우선합니다. "
+            "평가 대상 기업과 같은 고객 문제를 푸는 기업만 넣습니다."
+        )
     return f"""당신은 Physical AI·Robotics 스타트업 투자 심사역입니다.
 아래 근거만 사용해 평가 대상 기업의 시장성과 경쟁 구도를 분석하세요.
 
 규칙:
 - 모든 수치와 주장에는 근거의 [source_id]를 source_ids로 붙입니다. 근거에 없는 수치는 쓰지 않습니다.
 - 수치는 근거에 적힌 값과 단위, 기준 연도를 그대로 옮기고 전망치는 year에 '(전망)'을 붙입니다.
-- 경쟁사는 평가 대상 기업과 같은 고객 문제를 푸는 기업만 넣고, 평가 대상 기업 자신은 넣지 않습니다.
+{competitor_rule}
+- 평가 대상 기업 자신은 경쟁사에 넣지 않습니다. 대기업 자회사·계열사·상장사는 '대기업·상장사'로 분류합니다.
 - 세부 분야에 맞는 근거가 없으면 상위 시장 수치로 대체하되 metric에 상위 시장임을 밝히고 missing_info에 기록합니다.
 - 판단할 근거가 없는 항목은 추정하지 말고 missing_info에 적습니다.
 - market_size와 growth는 세부 분야와 가장 가까운 지표를 각각 최대 4개만 고릅니다. 같은 지표의 지역·연도별 나열은 대표값 하나로 줄입니다.
-- 경쟁사는 최대 6개이며 같은 세부 분야의 국내 스타트업을 우선합니다. 대기업 자회사·계열사·상장사는 '대기업·상장사'로 분류합니다.
 - 경쟁사 name은 근거에 적힌 표기를 그대로 씁니다.
 - 스타트업맵에 실린 기업은 '국내 스타트업'입니다. 스타트업맵은 기업명만 담고 있으므로 다른 근거가 없으면 product·differentiator에 '근거 없음'이라고 쓰고 지어내지 않습니다.
-- 분야·고객 분류에 industry가 있으면 스타트업맵에서 같은 산업 줄에 있는 기업을 경쟁사로 고릅니다.
 - summary는 3문장, 300자 이내로 씁니다.
 
 평가 대상 기업: {dict(startup)}
@@ -339,6 +519,11 @@ def analyze(state: GraphState, *, llm, search=None, web=None) -> NodeResult:
         rewrite=llm_rewriter(llm),
         web_search=web or (lambda query: web_search(query, max_results=5)),
     )
+    retrieve = search or (lambda query: search_market_docs(query, k=5))
+    segment = resolve_segment(profile)
+    rows, map_evidence, narrative = fetch_landscape(segment, retrieve) if segment else ([], {}, {})
+    selected = select_competitors(rows, narrative, str(startup["name"]))
+
     questions = build_questions(startup, profile)
     with ThreadPoolExecutor(max_workers=len(questions)) as pool:
         futures = {topic: pool.submit(run_crag, crag, q) for topic, q in questions.items()}
@@ -347,18 +532,36 @@ def analyze(state: GraphState, *, llm, search=None, web=None) -> NodeResult:
     evidence: dict[str, Evidence] = {
         item.source_id: item for result in results.values() for item in result.evidence
     }
+    landscape_evidence = {**map_evidence, **narrative}
+    evidence.update(landscape_evidence)
     analysis = llm.with_structured_output(MarketAnalysis).invoke(
-        _prompt(startup, profile, results)
+        _prompt(startup, profile, results, selected, list(landscape_evidence.values()))
     )
     analysis, dropped = enforce_citations(analysis, set(evidence))
     analysis, checks = curate(
-        analysis, evidence, str(startup["name"]), profile.get("industry")
+        analysis, evidence, str(startup["name"]), segment[0] if segment else None
     )
+    if selected:
+        other_mentioned = other_competitors(analysis.competitors, selected)
+        competitors = describe_competitors(llm, startup, selected, rows, evidence)
+        sentences = {name: [text for _, text in company_snippets(name, evidence)] for name in selected}
+    else:
+        other_mentioned, sentences = [], {}
+        competitors = analysis.competitors[:MAX_COMPETITORS]
+    analysis = analysis.model_copy(update={"competitors": competitors})
 
     output = MarketAnalysisOutput(
         **analysis.model_dump(),
         subdomain=str(profile["subdomain"]),
         evidence_level=_evidence_level(results),
+        competitor_landscape=CompetitorLandscape(
+            segment=_segment_label(segment) if segment else None,
+            rows=rows,
+            company_count=sum(len(row.companies) for row in rows),
+            selected=selected,
+            evidence_sentences=sentences,
+            other_mentioned=other_mentioned,
+        ),
         validation=Validation(dropped_uncited_items=dropped, **checks),
         retrieval={
             topic: TopicRetrieval(
@@ -369,7 +572,7 @@ def analyze(state: GraphState, *, llm, search=None, web=None) -> NodeResult:
             for topic, result in results.items()
         },
     )
-    cited = _cited_ids(output)
+    cited = _cited_ids(output) | {sid for row in rows for sid in row.source_ids}
     return {
         "market_analysis": output.model_dump(),
         "references": [item for sid, item in evidence.items() if sid in cited],

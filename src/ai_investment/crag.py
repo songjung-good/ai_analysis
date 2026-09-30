@@ -65,7 +65,12 @@ def _dedupe(evidence: Sequence[Evidence]) -> list[Evidence]:
     return list(seen.values())
 
 
-def format_evidence(evidence: Sequence[Evidence], max_chars: int = 700) -> str:
+# Above the largest chunk_size (1000) so vector-store chunks reach the LLM whole;
+# at 700 the tail of a chunk (e.g. a company sentence at the end) was cut off.
+MAX_EVIDENCE_CHARS = 1200
+
+
+def format_evidence(evidence: Sequence[Evidence], max_chars: int = MAX_EVIDENCE_CHARS) -> str:
     blocks = []
     for item in evidence:
         location = f"p.{item.page}" if item.page else (item.url or "")

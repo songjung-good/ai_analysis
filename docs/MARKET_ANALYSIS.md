@@ -8,14 +8,23 @@
 | State 키 | 필드 | 필수 | 용도 |
 |---|---|---|---|
 | `selected_startup` | `name` | O | 경쟁사 목록에서 자기 자신 제외 |
-| `profile` | `subdomain` | O | 시장 규모 검색 질의 |
+| `profile` | `subdomain` | O | 시장 규모 검색 질의, 스타트업맵 경쟁 분야 결정 |
 | `profile` | `paying_customer` | | 수요 검색 질의 |
 | `profile` | `customer_problem` | | 수요·경쟁 검색 질의 |
-| `profile` | `industry` | | 스타트업맵 적용 산업 8개 중 하나. 경쟁사 검색·산업 불일치 제거 |
-| `profile` | `tech_type` | | 스타트업맵 기술 유형 4개 중 하나. 경쟁사 검색 |
+| `profile` | `industry` | | 스타트업맵 적용 산업 8개 중 하나. 있으면 `subdomain` 대응보다 우선 |
+| `profile` | `tech_type` | | 스타트업맵 기술 유형 4개 중 하나. 있으면 `subdomain` 대응보다 우선 |
 
 필수 필드가 없으면 추정하지 않고 `ValueError`를 냅니다. `"정보 부족"` 값은 없는 것으로 처리합니다.
-`subdomain`, `paying_customer`, `customer_problem`은 `agents/profile.py`의 `CustomerProfile`이 채웁니다. `industry`, `tech_type`은 현재 profile에 없어 경쟁사 산업 검증이 꺼진 상태이며, 추가하면 바로 적용됩니다.
+`subdomain`, `paying_customer`, `customer_problem`은 `agents/profile.py`의 `CustomerProfile`이 채웁니다. `industry`, `tech_type`은 현재 profile에 없어 `subdomain`을 스타트업맵 분야로 대응시켜 씁니다.
+
+| `subdomain` | 스타트업맵 분야 |
+|---|---|
+| 산업용·제조 로봇 | 제조·산업 / 로봇 |
+| 물류 로봇 | 물류·유통 / 로봇, 자율주행 |
+| 자율주행·모빌리티 | 모빌리티·교통 / 자율주행 |
+| 서비스 로봇 | 서비스·생활 / 로봇 |
+| 로봇 AI 소프트웨어 | (전 산업) / AI·SW 플랫폼 |
+| 휴머노이드, 로봇 부품·하드웨어, 기타 | 대응 분야 없음 → LLM이 근거에서 경쟁사 선정 |
 
 `industry` 값: 제조·산업, 물류·유통, 모빌리티·교통, 의료·헬스케어, 건설·인프라, 농업·식품, 서비스·생활, 국방·안보
 `tech_type` 값: 로봇, 자율주행, 드론·UAM, AI·SW 플랫폼
@@ -29,7 +38,15 @@ market_analysis = {
     "market_size": [MarketFigure],   # 최대 4개, 지표별 최신 실측값
     "growth": [MarketFigure],        # 최대 4개, 전망치는 year에 "(전망)"
     "demand_drivers": [Claim],
-    "competitors": [Competitor],     # 최대 6개
+    "competitors": [Competitor],     # 최대 6개, 아래 경쟁사 선정 참고
+    "competitor_landscape": {
+        "segment": str | None,       # "제조·산업 로봇", 대응 분야가 없으면 None
+        "rows": [{"industry", "tech_type", "companies": [str], "source_ids"}],
+        "company_count": int,        # 같은 분야 국내 스타트업 수(경쟁 강도)
+        "selected": [str],           # competitors로 상세 분석한 기업, 선정 순서
+        "evidence_sentences": {name: [str]},  # 선정 기업마다 근거에서 찾은 문장
+        "other_mentioned": [str],    # 선정 밖에서 근거에 등장한 경쟁사(이름만)
+    },
     "differentiation": {"strengths": [Claim], "weaknesses": [Claim], "entry_barriers": [Claim]},
     "missing_info": [str],           # 근거가 없어 판단하지 못한 항목
     "evidence_level": "high" | "medium" | "low",
@@ -46,6 +63,18 @@ Competitor = {"name", "type": "국내 스타트업" | "해외 스타트업" | "�
 - 모든 `source_ids`는 같은 실행에서 `references`에 추가된 `Evidence.source_id`입니다.
 - `references`에는 출력에서 실제로 인용한 Evidence만 들어갑니다.
 - 스타트업맵은 기업명만 담고 있어 다른 근거가 없으면 `product`, `differentiator`가 `"근거 없음"`입니다.
+
+## 경쟁사 선정
+
+같은 입력이면 실행마다 같은 경쟁사가 나오도록 선정은 코드가 하고, LLM은 설명만 씁니다.
+
+1. `subdomain`(또는 `industry`·`tech_type`)을 스타트업맵 분야로 대응시키고, 고정 질의로 스타트업맵의 해당 줄과 관련 본문을 검색합니다. 같은 DB면 결과가 같습니다.
+2. 해당 줄의 기업 전체가 `competitor_landscape.rows`입니다. 평가 대상 기업은 제외합니다.
+3. 본문에 이름이 나오는 기업을 먼저, 나머지는 스타트업맵 순서로 최대 6개를 `selected`로 고릅니다.
+4. 코드가 기업마다 이름이 나오는 문장을 찾아 `evidence_sentences`에 넣고, LLM은 그 문장만 보고 `product`·`target_customer`·`differentiator`를 씁니다. 문장이 없는 기업은 LLM을 부르지 않고 `"근거 없음"`입니다.
+5. 대응 분야가 없는 `subdomain`은 이전처럼 LLM이 근거에서 경쟁사를 고르고, 아래 검증을 거칩니다.
+
+LLM 요약 문구는 실행마다 조금씩 달라질 수 있으므로, 사실 확인은 `evidence_sentences`를 기준으로 합니다.
 
 ## 코드가 보장하는 검증
 
@@ -69,7 +98,7 @@ LLM 출력을 그대로 믿지 않고 반환 전에 다음을 적용합니다. �
 | 점수 항목 | 주로 볼 필드 |
 |---|---|
 | `market` 시장 규모·성장·수요 | `market_size`, `growth`, `demand_drivers` |
-| `competition` 진입장벽·차별성 | `competitors`, `differentiation` |
+| `competition` 진입장벽·차별성 | `competitors`, `differentiation`, `competitor_landscape.company_count` |
 
 - `evidence_level == "low"`이면 해당 항목을 근거 부족으로 기록하고 임의 점수를 만들지 않습니다(`calculate_score`의 누락 항목 처리와 동일).
 - 특허·기술 해자는 기술·제품 검증 Agent의 `technical_analysis`와 함께 봅니다.
@@ -77,7 +106,7 @@ LLM 출력을 그대로 믿지 않고 반환 전에 다음을 적용합니다. �
 ## 보고서 생성 Agent 연결
 
 - "3. 기술 및 시장 분석"의 시장 규모·성장 전망은 `market_size`, `growth`를 씁니다.
-- 경쟁사 비교표는 `competitors`의 `name`, `type`, `product`, `differentiator` 4열을 권장합니다.
+- 경쟁사 비교표는 `competitors`의 `name`, `type`, `product`, `differentiator` 4열을 권장합니다. 경쟁 강도는 `competitor_landscape.company_count`로 적습니다.
 - 인용은 `source_ids`로 `references`와 연결합니다. 웹 출처는 `Evidence.url`, PDF 출처는 `Evidence.page`가 있습니다.
 
 ## 데이터 준비

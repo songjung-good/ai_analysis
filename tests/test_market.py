@@ -42,6 +42,14 @@ class FakeLLM:
                     )
                 if schema is RewrittenQuery:
                     return RewrittenQuery(query="rewritten query")
+                if schema is market.CompetitorDetails:
+                    return market.CompetitorDetails(items=[
+                        market.CompetitorDetail(
+                            name=line[4:], type="국내 스타트업", product=f"{line[4:]} 제품",
+                            target_customer="제조", differentiator="차이",
+                        )
+                        for line in prompt.splitlines() if line.startswith("### ")
+                    ])
                 return llm.analysis
 
         return Runnable()
@@ -228,6 +236,93 @@ class MarketAgentTests(unittest.TestCase):
         self.assertEqual(result["market_analysis"]["evidence_level"], "low")
         self.assertEqual(result["references"], [])
         self.assertTrue(all(r["used_web"] for r in result["market_analysis"]["retrieval"].values()))
+
+
+
+MAP_EXCERPT = (
+    "#### 제조·산업 (Manufacturing)\n"
+    "- 제조·산업 로봇 스타트업 (Robotics): Deft Robotics, Diden Robotics(디든로보틱스), "
+    "ROBROS, Holiday Robotics(홀리데이로보틱스), PLAIF(플라잎)\n"
+    "- 제조·산업 AI·SW 플랫폼 스타트업 (AI & SW Platforms): RLWRLD(리얼월드), Config\n"
+    "#### 물류·유통 (Logistics)\n"
+    "- 물류·유통 자율주행 스타트업 (Autonomous Mobility): TWINNY, RideFlux"
+)
+NARRATIVE_EXCERPT = "홀리데이로보틱스는 1,500억 원을 유치했고 디든로보틱스는 승월로봇으로 70억 원을 유치했다."
+
+
+def landscape_search(query):
+    if "투자 유치 사례" in query:
+        return [evidence("story", "2026 피지컬 AI 스타트업맵", 5, NARRATIVE_EXCERPT), evidence("map", "map", 8, MAP_EXCERPT)]
+    return [evidence("map", "2026 피지컬 AI 스타트업맵", 8, MAP_EXCERPT), evidence("x")]
+
+
+class LandscapeTests(unittest.TestCase):
+    def test_segment_from_subdomain_or_explicit_profile(self):
+        self.assertEqual(market.resolve_segment({"subdomain": "물류 로봇"}), ("물류·유통", ("로봇", "자율주행")))
+        self.assertIsNone(market.resolve_segment({"subdomain": "휴머노이드"}))
+        self.assertEqual(
+            market.resolve_segment({"subdomain": "기타", "industry": "건설·인프라", "tech_type": "드론·UAM"}),
+            ("건설·인프라", ("드론·UAM",)),
+        )
+
+    def test_landscape_takes_only_segment_rows(self):
+        rows, map_evidence, narrative = market.fetch_landscape(("제조·산업", ("로봇",)), landscape_search)
+        self.assertEqual([(r.industry, r.tech_type) for r in rows], [("제조·산업", "로봇")])
+        self.assertEqual(rows[0].companies[:2], ["Deft Robotics", "Diden Robotics(디든로보틱스)"])
+        self.assertEqual(set(map_evidence), {"map"})
+        self.assertEqual(set(narrative), {"story"})  # map chunk is not narrative
+
+    def test_selection_prefers_described_companies_and_is_repeatable(self):
+        rows, _, narrative = market.fetch_landscape(("제조·산업", ("로봇",)), landscape_search)
+        selected = market.select_competitors(rows, narrative, "플라잎(PLAIF)")
+        self.assertEqual(
+            selected,
+            ["Diden Robotics(디든로보틱스)", "Holiday Robotics(홀리데이로보틱스)", "Deft Robotics", "ROBROS"],
+        )
+        self.assertEqual(selected, market.select_competitors(rows, narrative, "플라잎(PLAIF)"))
+
+    def test_describes_only_companies_named_in_sentences(self):
+        rows, map_evidence, narrative = market.fetch_landscape(("제조·산업", ("로봇",)), landscape_search)
+        evidence = {**map_evidence, **narrative}
+        self.assertEqual(
+            market.company_snippets("Holiday Robotics(홀리데이로보틱스)", evidence),
+            [("story", "홀리데이로보틱스는 1,500억 원을 유치했고 디든로보틱스는 승월로봇으로 70억 원을 유치했다.")],
+        )
+        self.assertEqual(market.company_snippets("ROBROS", evidence), [])  # map list alone is not a description
+
+        llm = FakeLLM(set())
+        competitors = market.describe_competitors(
+            llm, {"name": "PLAIF"}, ["ROBROS", "Holiday Robotics(홀리데이로보틱스)"], rows, evidence
+        )
+        self.assertEqual([c.name for c in competitors], ["ROBROS", "Holiday Robotics(홀리데이로보틱스)"])
+        self.assertEqual((competitors[0].product, competitors[0].source_ids), ("근거 없음", ["map"]))
+        self.assertEqual(competitors[1].source_ids, ["map", "story"])
+        self.assertNotEqual(competitors[1].product, "근거 없음")
+        described_prompt = [p for name, p in llm.prompts if name == "CompetitorDetails"][0]
+        self.assertNotIn("### ROBROS", described_prompt)
+
+    def test_other_competitors_excludes_selected(self):
+        base = MarketAgentTests()._analysis().competitors[0]
+        verified = [base.model_copy(update={"name": "홀리데이로보틱스"}), base.model_copy(update={"name": "씨메스로보틱스"})]
+        self.assertEqual(
+            market.other_competitors(verified, ["Holiday Robotics(홀리데이로보틱스)"]), ["씨메스로보틱스"]
+        )
+
+    def test_analyze_outputs_landscape_for_mapped_subdomain(self):
+        state = {
+            "selected_startup": {"name": "플라잎(PLAIF)"},
+            "profile": {"subdomain": "산업용·제조 로봇", "paying_customer": "정보 부족", "customer_problem": "정보 부족"},
+        }
+        analysis = MarketAgentTests()._analysis().model_copy(update={"competitors": [], "market_size": [], "growth": []})
+        result = market.analyze(state, llm=FakeLLM({"map", "story", "x"}, analysis), search=landscape_search, web=lambda q: [])
+        landscape = result["market_analysis"]["competitor_landscape"]
+        self.assertEqual(landscape["segment"], "제조·산업 로봇")
+        self.assertEqual(landscape["company_count"], 5)
+        self.assertEqual(landscape["selected"][0], "Diden Robotics(디든로보틱스)")
+        self.assertEqual([c["name"] for c in result["market_analysis"]["competitors"]], landscape["selected"])
+        self.assertEqual(landscape["evidence_sentences"]["Deft Robotics"], [])
+        self.assertIn("1,500억", landscape["evidence_sentences"]["Holiday Robotics(홀리데이로보틱스)"][0])
+        self.assertIn("map", {e.source_id for e in result["references"]})
 
 
 if __name__ == "__main__":
