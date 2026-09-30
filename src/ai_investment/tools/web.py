@@ -11,6 +11,11 @@ def _results(payload: object) -> Sequence[Mapping[str, Any]]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, Mapping)]
     if isinstance(payload, Mapping):
+        if "error" in payload:
+            error = payload["error"]
+            if isinstance(error, Exception):
+                raise error
+            raise RuntimeError("Tavily search returned an error")
         results = payload.get("results", [])
         if isinstance(results, list):
             return [item for item in results if isinstance(item, Mapping)]

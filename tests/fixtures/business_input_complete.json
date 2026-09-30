@@ -1,0 +1,15 @@
+{
+  "selected_startup": {
+    "name": "가상제조로봇",
+    "product": "조립 자동화 로봇",
+    "funding_stage": "Seed",
+    "team": ["가상 창업자", "가상 로봇 엔지니어"]
+  },
+  "profile": {
+    "subdomain": "산업용·제조 로봇",
+    "paying_customer": "제조 공장",
+    "customer_problem": "숙련 작업자 부족으로 조립 자동화가 어렵다.",
+    "info_sufficiency": "충분",
+    "missing_info": []
+  }
+}
