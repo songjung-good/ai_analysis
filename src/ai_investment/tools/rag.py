@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from functools import lru_cache
 from pathlib import Path
 
@@ -12,6 +13,11 @@ MODEL_NAME = "nlpai-lab/KURE-v1"
 TECH_COLLECTION = "tech_docs"
 MARKET_COLLECTION = "market_docs"
 DEFAULT_CHROMA_PATH = "data/chroma"
+# Parallel agents (technical, market) and CRAG topics share these singletons.
+# Concurrent first-time construction crashes Chroma's client, and concurrent
+# SentenceTransformer.encode calls segfault torch, so both are serialized.
+_INIT_LOCK = threading.Lock()
+_ENCODE_LOCK = threading.Lock()
 
 
 class KUREEmbeddings:
@@ -21,19 +27,31 @@ class KUREEmbeddings:
         self.model = SentenceTransformer(MODEL_NAME)
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        return self.model.encode(texts, normalize_embeddings=True).tolist()
+        with _ENCODE_LOCK:
+            return self.model.encode(texts, normalize_embeddings=True).tolist()
 
     def embed_query(self, text: str) -> list[float]:
-        return self.model.encode(text, normalize_embeddings=True).tolist()
+        with _ENCODE_LOCK:
+            return self.model.encode(text, normalize_embeddings=True).tolist()
+
+
+def _embeddings() -> KUREEmbeddings:
+    with _INIT_LOCK:
+        return _cached_embeddings()
+
+
+def _store(collection_name: str):
+    with _INIT_LOCK:
+        return _cached_store(collection_name)
 
 
 @lru_cache(maxsize=1)
-def _embeddings() -> KUREEmbeddings:
+def _cached_embeddings() -> KUREEmbeddings:
     return KUREEmbeddings()
 
 
 @lru_cache(maxsize=2)
-def _store(collection_name: str):
+def _cached_store(collection_name: str):
     from langchain_chroma import Chroma
 
     persist_directory = Path(
@@ -41,7 +59,7 @@ def _store(collection_name: str):
     )
     return Chroma(
         collection_name=collection_name,
-        embedding_function=_embeddings(),
+        embedding_function=_cached_embeddings(),
         persist_directory=str(persist_directory),
     )
 
