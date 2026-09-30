@@ -436,10 +436,13 @@ def _verified_figures(
     """
     kept, unverified, low_tier, recited = [], [], [], []
     for figure in figures:
+        if not figure.unit.strip():
+            unverified.append(_describe_figure(figure))  # a bare number matches almost any text
+            continue
         cited = [evidence[sid] for sid in figure.source_ids if sid in evidence]
         backing = [item for item in cited if _value_in_source(figure, item.excerpt)]
         trusted = [item for item in backing if source_tier(item) <= 2]
-        if not trusted:
+        if not trusted and figure.value != 0:
             trusted = [
                 item for item in evidence.values()
                 if source_tier(item) <= 2 and _value_with_unit_in_text(figure, item.excerpt)

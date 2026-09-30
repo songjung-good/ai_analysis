@@ -432,6 +432,17 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual([f.source_ids for f in kept], [["chunk1"]])
         self.assertEqual(len(recited), 1)
 
+    def test_unitless_or_zero_figures_are_not_matched_loosely(self):
+        docs = {"a": evidence("a", excerpt="4개 기업, 2024년 +0% 성장"), "b": evidence("b", excerpt="0.4배 증가")}
+        figure = self._figure(4, "a")
+        kept, unverified, _, _ = market._verified_figures(
+            [figure.model_copy(update={"unit": ""}), figure.model_copy(update={"value": 0, "unit": "배", "source_ids": ["b"]}),
+             figure.model_copy(update={"value": 0, "unit": "%"})],
+            docs,
+        )
+        self.assertEqual([(f.value, f.unit) for f in kept], [(0, "%")])
+        self.assertEqual(len(unverified), 2)
+
     def test_conflicting_values_keep_better_tier(self):
         docs = {
             "news": web_evidence("news", "https://www.mk.co.kr/1"),
