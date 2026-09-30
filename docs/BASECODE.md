@@ -50,6 +50,26 @@
 
 입력 예시는 `tests/fixtures/business_input_complete.json`, `tests/fixtures/business_input_name_only.json`에 있다. 가상 기업 데이터이며 검색 근거나 분석 완료 결과를 의미하지 않는다. 입력 검증 코드는 4번 Agent 분석 로직 구현 단계에서 이 계약을 적용한다.
 
+## 4번 Agent 출력 계약
+
+`agents/business_models.py`의 `BusinessAnalysis`를 사용한다. 검증된 `model_dump()` 결과를 기존 `business_analysis`에 저장하므로 최상위 State 변경은 없다.
+
+| 필드 | 타입·모델 | 규칙 |
+|---|---|---|
+| `commercialization_stage` | `demo / pilot / paid_operation / unknown` | 확인된 단계만 기록 |
+| `stage_reason`, `summary` | 비어 있지 않은 문자열 | 단계 근거, 사업성 요약 |
+| `stage_source_ids` | `list[str]` | 확인된 단계에는 출처 필수 |
+| `customer_cases` | `list[CustomerCase]` | 고객, 용도, 운영 단계, 유료 여부, 출처 |
+| `deployment_costs` | `list[DeploymentCost]` | 비용 유형, 설명, 금액, 통화, 기간, 적용 범위, 출처 |
+| `deployment_effects` | `list[DeploymentEffect]` | 지표, 값, 단위, 비교 기준, 측정 조건, 설명, 출처 |
+| `regulatory_risks` | `list[RegulatoryRisk]` | 위험, 관할, 인증 상태, 후속 질문, 출처 |
+| `evidence_assessment` | `list[EvidenceAssessment]` | 주장, 근거 수준, 이유, 출처 |
+| `information_gaps` | `list[str]` | 입력 누락, 미공개 정보, 후속 확인 항목 |
+
+모든 필드는 명시적으로 전달한다. 미확인 수치·유료 여부·측정 조건 등은 `None`, 사례가 없으면 빈 목록으로 표시한다. 알려진 금액에는 통화, 알려진 효과 수치에는 단위가 필수다. 수치는 유한해야 하며 비용은 음수를 허용하지 않는다. 문자열은 공백 제거 후 빈 값을 허용하지 않고 정의되지 않은 필드를 거부한다.
+
+유료 운영 사례는 `is_paid=True`가 필수이며 전체 단계를 `paid_operation`으로 지정하려면 해당 고객 사례가 있어야 한다. 유료 시험 운영은 `pilot`과 `is_paid=True`로 표현한다. 근거 수준은 `cross_verified`, `single_source`, `claim_only`, `unknown`, `conflicting`이다. 출처의 실제 존재 여부와 주장에 대한 충분성은 이후 분석 로직에서 확인한다. 요약과 단계 이유는 구조화된 항목 및 연결된 출처 범위 안에서 작성한다.
+
 ## Tool 권한
 
 각 Agent 파일의 `TOOLS`에는 허용된 외부 Tool만 들어갑니다.

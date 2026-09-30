@@ -26,9 +26,10 @@ Physical AI·Robotics 기업의 제품이 실제 고객 현장에서 사용되�
 | 환경변수 예시 | 완료 | 기준 환경의 변수명 반영, 비밀값은 빈칸 처리 |
 | 실행 환경 및 초기화 확인 | 완료 | Python 3.11.15, 프로젝트 `.env` 필수값, ChatOpenAI·TavilySearch 초기화 확인. 실제 API 호출은 미검증 |
 | 2단계 입력 계약 및 예시 | 완료 | `selected_startup` 4개 필드와 `profile` 5개 필드, 누락 처리 규칙, 가상 입력 JSON 2개 확정. 실행 로직 반영은 예정 |
-| 출력 모델·프롬프트·분석 로직 | 예정 | 아래 순서로 구현 |
+| 3단계 출력 모델 | 완료 | `BusinessAnalysis`와 항목별 모델 정의, 검증 규칙·테스트 작성 |
+| 검색 전략·프롬프트·분석 로직 | 예정 | 아래 순서로 구현 |
 
-문서의 출력 필드와 검색 횟수는 제안이며 구현 단계에서 확정한다. 실제로 검증하지 않은 항목을 완료로 표시하지 않는다.
+출력 계약은 모델에 반영했다. 검색 횟수는 아직 제안이며 4단계에서 확정한다. 실제로 검증하지 않은 항목을 완료로 표시하지 않는다.
 
 ## 3. 단계별 작업 순서
 
@@ -68,12 +69,13 @@ uv pip install --python .venv/bin/python -r requirements.txt
 
 이 단계는 계약·예시 확정이며, API 검색과 실제 입력 검증 함수 구현은 이후 단계에서 진행한다.
 
-`business_analysis`의 출력 구조 제안:
+`business_analysis`의 출력 구조는 `agents/business_models.py`의 `BusinessAnalysis`로 확정했다. 세부 타입과 검증 규칙은 [개발 계약](BASECODE.md#4번-agent-출력-계약)을 따른다.
 
 | 필드 | 내용 | 정보 부족 표현 |
 |---|---|---|
 | `commercialization_stage` | `demo`, `pilot`, `paid_operation`, `unknown` | `unknown` |
 | `stage_reason` | 단계 판단 근거와 적용 제품·현장 | 확인되지 않은 사항 명시 |
+| `stage_source_ids` | 상용화 단계 판단의 출처 ID | `unknown`인 경우 빈 목록 가능 |
 | `customer_cases` | 고객명, 용도, 운영 상태, 유료 여부, 출처 ID | 빈 목록과 `information_gaps` 기록 |
 | `deployment_costs` | 구매·구독·통합·유지보수 비용, 통화, 기간, 출처 ID | 수치 `null`, 미공개 표시 |
 | `deployment_effects` | 효과 지표, 값·단위, 비교 기준, 측정 조건, 출처 ID | 수치 `null`, 정성 주장만 기록 |
@@ -165,7 +167,7 @@ State를 직접 변경하지 않는다. 누적 `references` 전체를 다시 반
 | Graph 병렬 실행 | 다른 Agent 소유 키를 쓰지 않고 결과가 투자 판단에 전달됨 |
 
 - [x] 실제 입력 구조와 누락 처리 계약을 확정했다.
-- [ ] 출력 모델을 확정했다.
+- [x] 출력 모델을 확정했다.
 - [ ] `business.py`의 `NotImplementedError`를 분석 로직으로 대체했다.
 - [ ] 모든 사실 주장을 제공된 출처 ID와 연결했다.
 - [ ] 미확인 정보와 검색·모델 호출 실패를 구분했다.
@@ -183,6 +185,10 @@ State를 직접 변경하지 않는다. 누적 `references` 전체를 다시 반
 | 2026-09-30 | 계획 | 구현 순서, 분석 판단 기준, 검증 사례 문서화 | 완료 | 본 문서 | 입력·출력 모델 확정 |
 | 2026-09-30 | 1단계: 환경 | uv 기반 `.venv`와 프로젝트 `.env` 확인 | 완료 | Python 3.11.15, 필수 변수 3개 존재, ChatOpenAI·TavilySearch 초기화 성공. 비밀값 출력 및 API 요청 없이 확인 | 2단계: 기업 입력과 `profile` 구조 확인. 키 유효성·모델 접근 권한은 실제 호출 단계에서 확인 |
 | 2026-09-30 | 2단계: 입력 계약 | 기존 기업 4개 필드, 사용자 제공 `profile` 5개 필드, 누락 처리 규칙과 입력 JSON 2개 작성 | 완료 | JSON 형식·필드 타입·입력 사례 검증. 실행 로직은 미구현 | 3단계: Pydantic 출력 모델 정의 |
+
+| 2026-09-30 | 3단계: 출력 모델 | `BusinessAnalysis`와 고객·비용·효과·규제·근거 모델 구현, 출력 계약 문서 반영 | 완료 | 전체 테스트 21개 통과, JSON Schema 생성 확인. API 호출 없음 | 4단계: 검색 질의·호출 한도·정보 부족 시 검색 전략 확정 |
+
+3단계 산출물: `src/ai_investment/agents/business_models.py`, `tests/test_business_models.py`. 모델 검증은 출처의 사실성을 보증하지 않으며 실제 인용 검증은 6단계에서 구현한다.
 
 ### 작업 기록 추가 양식
 
