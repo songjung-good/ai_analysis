@@ -16,8 +16,10 @@ from ai_investment.crag import (
 from ai_investment.models import Evidence
 
 
-def evidence(source_id, title="IFR", page=8):
-    return Evidence(source_id=source_id, title=title, page=page, excerpt=f"근거 {source_id}")
+def evidence(source_id, title="IFR", page=8, excerpt=None):
+    return Evidence(
+        source_id=source_id, title=title, page=page, excerpt=excerpt or f"근거 {source_id}"
+    )
 
 
 class FakeLLM:
@@ -125,17 +127,82 @@ class MarketAgentTests(unittest.TestCase):
 
     def test_returns_only_owned_keys_and_cited_references(self):
         llm = FakeLLM({"a", "b", "unused"}, self._analysis())
-        search = lambda q: [evidence("a"), evidence("b"), evidence("unused")]
+        search = lambda q: [
+            evidence("a", excerpt="협동로봇 64,542대, 전년 대비 +12%"),
+            evidence("b", excerpt="제조·산업 AI·SW 플랫폼 스타트업: Tommoro Robotics, PLAIF(플라잎)"),
+            evidence("unused"),
+        ]
         node = guard_node("market_analysis", lambda s: market.analyze(s, llm=llm, search=search, web=lambda q: []))
         result = node(self.STATE)
 
         analysis = result["market_analysis"]
         self.assertEqual([f["metric"] for f in analysis["market_size"]], ["협동로봇 연간 설치"])
         self.assertEqual(analysis["growth"][0]["source_ids"], ["a"])
-        self.assertIn("근거 인용이 없어 제거한 항목 1개", analysis["missing_info"])
+        self.assertEqual(analysis["validation"]["dropped_uncited_items"], 1)
+        self.assertEqual([c["name"] for c in analysis["competitors"]], ["Tommoro Robotics"])
         self.assertEqual(analysis["evidence_level"], "high")
         self.assertEqual(analysis["subdomain"], "제조 협동로봇")
         self.assertEqual({e.source_id for e in result["references"]}, {"a", "b"})
+
+    def test_curate_drops_unverified_and_self_competitors(self):
+        base = self._analysis()
+        competitor = base.competitors[0]
+        analysis = base.model_copy(update={"competitors": [
+            competitor,
+            competitor.model_copy(update={"name": "DidRen Robotics"}),
+            competitor.model_copy(update={"name": "플라잎"}),
+        ]})
+        docs = {
+            "b": evidence("b", excerpt="휴머노이드 시장 동향"),
+            "map": evidence("map", excerpt="Tommoro Robotics, Diden Robotics(디든로보틱스)"),
+        }
+        curated, checks = market.curate(analysis, docs, "PLAIF(플라잎)")
+        self.assertEqual([c.name for c in curated.competitors], ["Tommoro Robotics"])
+        self.assertEqual(curated.competitors[0].source_ids, ["map"])
+        self.assertEqual(checks["recited_competitors"], ["Tommoro Robotics"])
+        self.assertEqual(checks["unverified_competitors"], ["DidRen Robotics"])
+        self.assertTrue(checks["excluded_self_as_competitor"])
+
+    def test_curate_drops_competitor_mapped_to_other_industry(self):
+        competitor = self._analysis().competitors[0]
+        analysis = self._analysis().model_copy(update={"competitors": [
+            competitor.model_copy(update={"name": "Navifra"}),
+            competitor.model_copy(update={"name": "Tommoro Robotics"}),
+            competitor.model_copy(update={"name": "Figure AI"}),
+        ]})
+        docs = {
+            "b": evidence("b", excerpt=(
+                "- 물류·유통 AI·SW 플랫폼 스타트업 (AI & SW Platforms): Navifra, BISCAT\n"
+                "- 제조·산업 AI·SW 플랫폼 스타트업 (AI & SW Platforms): Tommoro Robotics\n"
+                "Figure AI는 시리즈C에서 10억 달러를 유치했다."
+            )),
+        }
+        curated, checks = market.curate(analysis, docs, "PLAIF", industry="제조·산업")
+        self.assertEqual([c.name for c in curated.competitors], ["Tommoro Robotics", "Figure AI"])
+        self.assertEqual(checks["industry_mismatched_competitors"], ["Navifra"])
+
+    def test_curate_keeps_latest_actual_figure_per_metric(self):
+        figure = self._analysis().market_size[0]
+        series = [
+            figure.model_copy(update={"year": year, "value": value})
+            for year, value in [("2022", 57966), ("2024", 64542), ("2028(전망)", 90000), ("2023", 57148)]
+        ]
+        docs = {"a": evidence("a", excerpt="2022년 57,966대, 2023년 57,148대, 2024년 64,542대, 2028년 90000대")}
+        curated, _ = market.curate(
+            self._analysis().model_copy(update={"market_size": series, "competitors": [], "growth": []}), docs, "PLAIF"
+        )
+        self.assertEqual([(f.year, f.value) for f in curated.market_size], [("2024", 64542)])
+
+    def test_curate_drops_figure_absent_from_cited_evidence(self):
+        docs = {"a": evidence("a", excerpt="협동로봇 64,542대, 전년 대비 +12%")}
+        analysis = self._analysis().model_copy(update={"competitors": []})
+        analysis = analysis.model_copy(update={"market_size": [
+            analysis.market_size[0],
+            analysis.market_size[0].model_copy(update={"metric": "시장 금액", "value": 3.5, "unit": "조 원"}),
+        ]})
+        curated, checks = market.curate(analysis, docs, "PLAIF")
+        self.assertEqual([f.metric for f in curated.market_size], ["협동로봇 연간 설치"])
+        self.assertEqual(checks["unverified_figures"], ["시장 금액 3.5조 원 (2024)"])
 
     def test_questions_use_profile(self):
         questions = market.build_questions(self.STATE["selected_startup"], self.STATE["profile"])

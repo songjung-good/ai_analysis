@@ -126,48 +126,48 @@ AI 기반 자율주행 시스템을 개발하는 기업들은 차량을 직접 �
 
 로고 이미지에서 전사한 국내 피지컬 AI 스타트업 기업명이다. 산업(적용 산업) > 기술 유형 순으로 정리했다.
 
-#### Manufacturing (제조·산업)
+#### 제조·산업 (Manufacturing)
 
-- Robotics (로봇): Deft Robotics, Diden Robotics(디든로보틱스), Rovolution(로볼루션), ROBROS, ARA(아라), A ROBOT(에이로봇), ABLE Labs, Index Robotics, WEFLO, TESOLLO, TIRIPS, Holiday Robotics(홀리데이로보틱스), korasrobotics(코라스로보틱스), Unique & Different(UND)
-- Autonomous Mobility (자율주행): LoadRunner, Seoul Robotics
-- AI & SW Platforms (AI·SW 플랫폼): dSPECTER, ROAI, RLWRLD(리얼월드), MACROACT, MOVENSYS, LIOPS, BRILS, sequor robotics, ARICA, Nbyul, WP(위드포인츠), CarbonSix, CONPORTLAB, Config(컨피그인텔리전스), TEFA Robotics, THOTH, Tommoro Robotics, Michelo Robotics, PLAIF(플라잎), wim
+- 제조·산업 로봇 스타트업 (Robotics): Deft Robotics, Diden Robotics(디든로보틱스), Rovolution(로볼루션), ROBROS, ARA(아라), A ROBOT(에이로봇), ABLE Labs, Index Robotics, WEFLO, TESOLLO, TIRIPS, Holiday Robotics(홀리데이로보틱스), korasrobotics(코라스로보틱스), Unique & Different(UND)
+- 제조·산업 자율주행 스타트업 (Autonomous Mobility): LoadRunner, Seoul Robotics
+- 제조·산업 AI·SW 플랫폼 스타트업 (AI & SW Platforms): dSPECTER, ROAI, RLWRLD(리얼월드), MACROACT, MOVENSYS, LIOPS, BRILS, sequor robotics, ARICA, Nbyul, WP(위드포인츠), CarbonSix, CONPORTLAB, Config(컨피그인텔리전스), TEFA Robotics, THOTH, Tommoro Robotics, Michelo Robotics, PLAIF(플라잎), wim
 
-#### Transportation (모빌리티·교통)
+#### 모빌리티·교통 (Transportation)
 
-- Autonomous Mobility (자율주행): NEUBILITY(뉴빌리티), MAROROBOTECH, MOBINN, Seoul Dynamics, Syscon Robotics, ROgistics(알오지스틱스), 오딘로보틱스, WATT Working Robot, INTEGRIT, ZIO ROBOT, AIDL, Feasix AI, Polaris3D, A2Z(오토노머스에이투지)
-- AI & SW Platforms (AI·SW 플랫폼): D.Hive, ADUS
-- Drones & UAM (드론·UAM): NARMA, NEXT Aerospace, tie, VONAER, UAMTECH, TOFF MOBILITY, PLANA
+- 모빌리티·교통 자율주행 스타트업 (Autonomous Mobility): NEUBILITY(뉴빌리티), MAROROBOTECH, MOBINN, Seoul Dynamics, Syscon Robotics, ROgistics(알오지스틱스), 오딘로보틱스, WATT Working Robot, INTEGRIT, ZIO ROBOT, AIDL, Feasix AI, Polaris3D, A2Z(오토노머스에이투지)
+- 모빌리티·교통 AI·SW 플랫폼 스타트업 (AI & SW Platforms): D.Hive, ADUS
+- 모빌리티·교통 드론·UAM 스타트업 (Drones & UAM): NARMA, NEXT Aerospace, tie, VONAER, UAMTECH, TOFF MOBILITY, PLANA
 
-#### Defense & Security (국방·안보)
+#### 국방·안보 (Defense & Security)
 
-- Drones & UAM (드론·UAM): NEARTHLAB, LIHAI, BONE(본), Nilab, QUANTUM AERO, PABLO AIR, NEOWISE
-- Robotics (로봇): RAION ROBOTICS, UEL, WorkerInSpace
-- Autonomous Mobility (자율주행): DOGU ROBOTICS
+- 국방·안보 드론·UAM 스타트업 (Drones & UAM): NEARTHLAB, LIHAI, BONE(본), Nilab, QUANTUM AERO, PABLO AIR, NEOWISE
+- 국방·안보 로봇 스타트업 (Robotics): RAION ROBOTICS, UEL, WorkerInSpace
+- 국방·안보 자율주행 스타트업 (Autonomous Mobility): DOGU ROBOTICS
 
-#### Construction (건설·인프라)
+#### 건설·인프라 (Construction)
 
-- Robotics (로봇): ROVO ROAD, RO&F, SHECO, EVAR, SLM, MFR(Multi-purpose Field Robotics), KALMAN, TAS GLOBAL
-- Autonomous Mobility (자율주행): GOLE ROBOTICS
-- Drones & UAM (드론·UAM): SOOMVI, Sierra BASE, ARGOSDYNE, UVIFY(유비파이), INTOSKY, GIANT DRONE, kyte, RENEU, FLUTON
-- AI & SW Platforms (AI·SW 플랫폼): UROBOTICS
+- 건설·인프라 로봇 스타트업 (Robotics): ROVO ROAD, RO&F, SHECO, EVAR, SLM, MFR(Multi-purpose Field Robotics), KALMAN, TAS GLOBAL
+- 건설·인프라 자율주행 스타트업 (Autonomous Mobility): GOLE ROBOTICS
+- 건설·인프라 드론·UAM 스타트업 (Drones & UAM): SOOMVI, Sierra BASE, ARGOSDYNE, UVIFY(유비파이), INTOSKY, GIANT DRONE, kyte, RENEU, FLUTON
+- 건설·인프라 AI·SW 플랫폼 스타트업 (AI & SW Platforms): UROBOTICS
 
-#### Logistics (물류·유통)
+#### 물류·유통 (Logistics)
 
-- AI & SW Platforms (AI·SW 플랫폼): Navifra, BISCAT, S innovations, EULER ROBOTICS
-- Robotics (로봇): ROBOE Technologies, BEM, AIM, contoro robotics
-- Drones & UAM (드론·UAM): AIRBILITY, 해양드론기술(Marine Drone Tech)
-- Autonomous Mobility (자율주행): Riibotics, AMR Labs Inc., TWINNY, THIRA ROBOTICS, FieldRo, ing Robotics, RideFlux
+- 물류·유통 AI·SW 플랫폼 스타트업 (AI & SW Platforms): Navifra, BISCAT, S innovations, EULER ROBOTICS
+- 물류·유통 로봇 스타트업 (Robotics): ROBOE Technologies, BEM, AIM, contoro robotics
+- 물류·유통 드론·UAM 스타트업 (Drones & UAM): AIRBILITY, 해양드론기술(Marine Drone Tech)
+- 물류·유통 자율주행 스타트업 (Autonomous Mobility): Riibotics, AMR Labs Inc., TWINNY, THIRA ROBOTICS, FieldRo, ing Robotics, RideFlux
 
-#### Agriculture & Food (농업·식품)
+#### 농업·식품 (Agriculture & Food)
 
-- Robotics (로봇): Ronik, ROBOS, ROBOARETE, ROWAIN, MANDARIN ROBOTICS, META FARMERS(메타파머스), PEOPLE'S LEAGUE, BEYOND ROBOTICS, BEYOND HONEYCOMB, SHIN STARR, AGMO, Aniai, XYZ(엑스와이지), Zordi, MDX, WAVE, cutshion, future kitchen
-- Autonomous Mobility (자율주행): THE Robotics, mobileight, HELPER ROBOTICS
-- AI & SW Platforms (AI·SW 플랫폼): N.THING
+- 농업·식품 로봇 스타트업 (Robotics): Ronik, ROBOS, ROBOARETE, ROWAIN, MANDARIN ROBOTICS, META FARMERS(메타파머스), PEOPLE'S LEAGUE, BEYOND ROBOTICS, BEYOND HONEYCOMB, SHIN STARR, AGMO, Aniai, XYZ(엑스와이지), Zordi, MDX, WAVE, cutshion, future kitchen
+- 농업·식품 자율주행 스타트업 (Autonomous Mobility): THE Robotics, mobileight, HELPER ROBOTICS
+- 농업·식품 AI·SW 플랫폼 스타트업 (AI & SW Platforms): N.THING
 
-#### Healthcare (의료·헬스케어)
+#### 의료·헬스케어 (Healthcare)
 
-- Robotics (로봇): Dentronic, ROEN Surgical, rebodis, Magnendo, Medi Node, MEDISBY, intelligent solution, IMSYSTEM, AIRS, HUCA, LN ROBOTICS, whydots, HUROTICS, Mand.ro, WIRobotics(위로보틱스), UA ROBOTICS, connecteve, blue robin, HEXAR Robotics, MedInTech
+- 의료·헬스케어 로봇 스타트업 (Robotics): Dentronic, ROEN Surgical, rebodis, Magnendo, Medi Node, MEDISBY, intelligent solution, IMSYSTEM, AIRS, HUCA, LN ROBOTICS, whydots, HUROTICS, Mand.ro, WIRobotics(위로보틱스), UA ROBOTICS, connecteve, blue robin, HEXAR Robotics, MedInTech
 
-#### Lifestyle (서비스·생활)
+#### 서비스·생활 (Lifestyle)
 
-- Robotics (로봇): RESET, circulus, STUDIO LAB, khameleon, TOROOC, VD robotics, RGT
+- 서비스·생활 로봇 스타트업 (Robotics): RESET, circulus, STUDIO LAB, khameleon, TOROOC, VD robotics, RGT

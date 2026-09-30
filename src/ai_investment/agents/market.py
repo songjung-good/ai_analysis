@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
@@ -19,6 +20,11 @@ TOOLS = tools_for("market_analysis")
 search_market_docs, web_search = TOOLS
 
 Topic = Literal["market", "demand", "competition"]
+
+MAX_FIGURES = 4
+MAX_COMPETITORS = 6
+# Startup map transcript line: "- 제조·산업 로봇 스타트업 (Robotics): A, B(비), ..."
+MAP_LINE = re.compile(r"^- (?P<industry>\S+) .+? 스타트업 \(.+?\): (?P<names>.+)$", re.MULTILINE)
 
 
 class MarketFigure(BaseModel):
@@ -118,6 +124,121 @@ def enforce_citations(analysis: MarketAnalysis, known: set[str]) -> tuple[Market
     return analysis.model_copy(update=updates), dropped
 
 
+def _name_keys(name: str) -> set[str]:
+    """'Holiday Robotics(홀리데이로보틱스)' -> {'holidayrobotics', '홀리데이로보틱스'}."""
+    parts = re.split(r"[()（）/,]", name)
+    return {key for part in parts if len(key := re.sub(r"[\W_]+", "", part).lower()) >= 2}
+
+
+def _mentioned(name: str, text: str) -> bool:
+    compact = re.sub(r"[\W_]+", "", text).lower()
+    return any(key in compact for key in _name_keys(name))
+
+
+def _map_industries(name: str, evidence: Mapping[str, Evidence]) -> set[str]:
+    """Industries the startup map assigns to a company, empty if it is not on the map."""
+    return {
+        match["industry"]
+        for item in evidence.values()
+        for match in MAP_LINE.finditer(item.excerpt)
+        if _mentioned(name, match["names"])
+    }
+
+
+def _year_key(year: str) -> tuple[int, int]:
+    """Prefer actual values over forecasts, then the latest year."""
+    match = re.search(r"\d{4}", year)
+    return ("전망" not in year, int(match.group()) if match else 0)
+
+
+def _value_in_text(value: float, text: str) -> bool:
+    """True if the number is written in the text as a whole number, not a digit fragment."""
+    if value == int(value):
+        spellings = {f"{int(value)}", f"{int(value):,}"}
+    else:
+        spellings = {f"{value:g}", f"{value:.1f}", f"{value:,.1f}", f"{value:.2f}"}
+    return any(
+        re.search(rf"(?<![\d.,]){re.escape(spelling)}(?![\d]|[.,]\d)", text)
+        for spelling in spellings
+    )
+
+
+def _verified_figures(
+    figures: Sequence[MarketFigure], evidence: Mapping[str, Evidence]
+) -> tuple[list[MarketFigure], list[str]]:
+    kept, dropped = [], []
+    for figure in figures:
+        cited_text = " ".join(evidence[sid].excerpt for sid in figure.source_ids if sid in evidence)
+        if _value_in_text(figure.value, cited_text):
+            kept.append(figure)
+        else:
+            dropped.append(f"{figure.metric} {figure.value:g}{figure.unit} ({figure.year})")
+    return kept, dropped
+
+
+def _latest_per_metric(figures: Sequence[MarketFigure]) -> list[MarketFigure]:
+    best: dict[tuple[str, str, str], MarketFigure] = {}
+    for figure in figures:
+        key = (figure.metric, figure.region, figure.unit)
+        if key not in best or _year_key(figure.year) > _year_key(best[key].year):
+            best[key] = figure
+    return list(best.values())[:MAX_FIGURES]
+
+
+def curate(
+    analysis: MarketAnalysis,
+    evidence: Mapping[str, Evidence],
+    startup_name: str,
+    industry: str | None = None,
+) -> tuple[MarketAnalysis, dict[str, Any]]:
+    """Deterministic checks the LLM cannot be trusted with.
+
+    - competitors must be named in the evidence they cite and must not be the target;
+      a wrong citation is re-pointed to the retrieved evidence that names the company
+    - a company the startup map files under another industry than profile.industry
+      is not a competitor for the same customer
+    - a figure's value must appear in the evidence it cites
+    - one representative figure per metric, capped at MAX_FIGURES
+    """
+    target_keys = _name_keys(startup_name)
+    competitors, unverified, recited, mismatched = [], [], [], []
+    excluded_self = False
+    for competitor in analysis.competitors:
+        if _name_keys(competitor.name) & target_keys:
+            excluded_self = True
+            continue
+        industries = _map_industries(competitor.name, evidence)
+        if industry and industries and industry not in industries:
+            mismatched.append(competitor.name)
+            continue
+        cited_text = " ".join(evidence[sid].excerpt for sid in competitor.source_ids if sid in evidence)
+        if _mentioned(competitor.name, cited_text):
+            competitors.append(competitor)
+            continue
+        naming = [sid for sid, item in evidence.items() if _mentioned(competitor.name, item.excerpt)]
+        if naming:
+            competitors.append(competitor.model_copy(update={"source_ids": naming}))
+            recited.append(competitor.name)
+        else:
+            unverified.append(competitor.name)
+    market_size, unverified_size = _verified_figures(analysis.market_size, evidence)
+    growth, unverified_growth = _verified_figures(analysis.growth, evidence)
+    curated = analysis.model_copy(
+        update={
+            "market_size": _latest_per_metric(market_size),
+            "growth": _latest_per_metric(growth),
+            "competitors": competitors[:MAX_COMPETITORS],
+        }
+    )
+    return curated, {
+        "unverified_competitors": unverified,
+        "recited_competitors": recited,
+        "industry_mismatched_competitors": mismatched,
+        "unverified_figures": unverified_size + unverified_growth,
+        "excluded_self_as_competitor": excluded_self,
+    }
+
+
 def _cited_ids(analysis: MarketAnalysis) -> set[str]:
     items = [
         *analysis.market_size,
@@ -151,6 +272,10 @@ def _prompt(
 - 판단할 근거가 없는 항목은 추정하지 말고 missing_info에 적습니다.
 - market_size와 growth는 세부 분야와 가장 가까운 지표를 각각 최대 4개만 고릅니다. 같은 지표의 지역·연도별 나열은 대표값 하나로 줄입니다.
 - 경쟁사는 최대 6개이며 같은 세부 분야의 국내 스타트업을 우선합니다. 대기업 자회사·계열사·상장사는 '대기업·상장사'로 분류합니다.
+- 경쟁사 name은 근거에 적힌 표기를 그대로 씁니다.
+- 스타트업맵에 실린 기업은 '국내 스타트업'입니다. 스타트업맵은 기업명만 담고 있으므로 다른 근거가 없으면 product·differentiator에 '근거 없음'이라고 쓰고 지어내지 않습니다.
+- 분야·고객 분류에 industry가 있으면 스타트업맵에서 같은 산업 줄에 있는 기업을 경쟁사로 고릅니다.
+- summary는 3문장, 300자 이내로 씁니다.
 
 평가 대상 기업: {dict(startup)}
 분야·고객 분류: {dict(profile)}
@@ -188,17 +313,17 @@ def analyze(state: GraphState, *, llm, search=None, web=None) -> NodeResult:
         _prompt(startup, profile, results)
     )
     analysis, dropped = enforce_citations(analysis, set(evidence))
-    missing_info = list(analysis.missing_info)
-    if dropped:
-        missing_info.append(f"근거 인용이 없어 제거한 항목 {dropped}개")
+    analysis, checks = curate(
+        analysis, evidence, str(startup["name"]), profile.get("industry")
+    )
 
     cited = _cited_ids(analysis)
     return {
         "market_analysis": {
             **analysis.model_dump(),
             "subdomain": profile["subdomain"],
-            "missing_info": missing_info,
             "evidence_level": _evidence_level(results),
+            "validation": {"dropped_uncited_items": dropped, **checks},
             "retrieval": {
                 topic: {
                     "queries": result.queries,
