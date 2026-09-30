@@ -81,6 +81,7 @@ def _model():
 def _update(name: str, scores: dict[str, float], reason: str, *, force_hold=False,
             details=None, risks=None, gaps=None, sources=None) -> NodeResult:
     result = calculate_score(scores, force_hold=force_hold)
+    reason = f"최종 판단: {result.decision}; 가중 점수: {result.weighted_score}\n{reason}"
     evaluation = {
         "startup_name": name, "score": result.weighted_score,
         "decision": result.decision, "reason": reason,
@@ -96,7 +97,9 @@ def _update(name: str, scores: dict[str, float], reason: str, *, force_hold=Fals
 
 def run(state: GraphState, *, model: Any = None) -> NodeResult:
     """Score only the current startup; return one evaluation delta."""
-    startup = state.get("selected_startup") or {}
+    startup = state.get("selected_startup")
+    if startup is None:
+        startup = {}
     if not isinstance(startup, Mapping):
         raise TypeError("selected_startup must be a mapping")
     name = startup.get("name")
@@ -143,10 +146,8 @@ def run(state: GraphState, *, model: Any = None) -> NodeResult:
     gaps.extend(assessment.critical_information_gaps)
     risks = [item.model_dump() for item in assessment.blocking_risks]
     force_hold = bool(risks or gaps)
-    result = calculate_score(scores, force_hold=force_hold)
-    lines = [f"최종 판단: {result.decision}; 가중 점수: {result.weighted_score}"]
-    lines.extend(f"{key}: {item['score']} — {item['reason']} (출처: {', '.join(item['source_ids'])})"
-                 for key, item in details.items())
+    lines = [f"{key}: {item['score']} — {item['reason']} (출처: {', '.join(item['source_ids'])})"
+             for key, item in details.items()]
     lines.extend(f"필수 보류: {item['category']} — {item['reason']}" for item in risks)
     lines.extend(gaps)
     return _update(name, scores, "\n".join(lines), force_hold=force_hold,
