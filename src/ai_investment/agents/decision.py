@@ -179,7 +179,26 @@ def run(state: GraphState, *, model: Any = None) -> NodeResult:
     output = structured.invoke([
         ("system", SYSTEM_PROMPT), ("human", json.dumps(context, ensure_ascii=False)),
     ])
-    assessment = InvestmentAssessment.model_validate(output)
+
+    def resolve_sid(sid: str, ref_set: set[str]) -> str:
+        s = sid.strip()
+        if s in ref_set:
+            return s
+        for avail in ref_set:
+            if avail.startswith(s) or s.startswith(avail) or s in avail:
+                return avail
+        return s
+
+    def walk_fix(obj: Any, ref_set: set[str]) -> Any:
+        if isinstance(obj, dict):
+            return {k: walk_fix(v, ref_set) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [resolve_sid(i, ref_set) if isinstance(i, str) else walk_fix(i, ref_set) for i in obj]
+        return obj
+
+    raw = output.model_dump() if hasattr(output, "model_dump") else output
+    normalized = walk_fix(raw, current_ids)
+    assessment = InvestmentAssessment.model_validate(normalized)
     cited = _source_ids(assessment.model_dump())
     if cited - current_ids:
         raise ValueError("Assessment cites unavailable current source IDs: " + ", ".join(sorted(cited - current_ids)))

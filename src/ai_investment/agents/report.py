@@ -59,8 +59,24 @@ def _available_references(state: GraphState) -> dict[str, Evidence]:
     return available
 
 
+def _resolve_sid(sid: str, available: set[str]) -> str:
+    s = sid.strip()
+    if s in available:
+        return s
+    for avail in available:
+        if avail.startswith(s) or s.startswith(avail) or s in avail:
+            return avail
+    return s
+
+
 def _used_references(draft: ReportDraft, state: GraphState) -> list[Evidence]:
     available = _available_references(state)
+    avail_keys = set(available.keys())
+    # Remap paragraph.source_ids in draft so citation numbers and checks align
+    for section in draft.sections():
+        for paragraph in section:
+            paragraph.source_ids = [_resolve_sid(s, avail_keys) for s in paragraph.source_ids]
+
     used_ids = dict.fromkeys(
         source_id for section in draft.sections()
         for paragraph in section for source_id in paragraph.source_ids
@@ -260,7 +276,9 @@ def render_report_pdf(
         y = write_text(canvas, f"{decision} | 가중 점수: {score_text}", y, normal)
         reason = state.get("decision_reason")
         if reason:
-            y = write_text(canvas, str(reason), y, normal)
+            # ponytail: show top 2 lines on page 1 SUMMARY to fit half-page. full details on page 4.
+            summary_reason = "\n".join(str(reason).splitlines()[:2])
+            y = write_text(canvas, summary_reason, y, normal)
         if no_candidate:
             y = write_text(canvas, "선정 조건을 확인할 수 있는 후보가 없어 평가를 진행하지 않았습니다.", y, normal)
         else:
