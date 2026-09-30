@@ -100,7 +100,7 @@ class MarketAgentTests(unittest.TestCase):
         "profile": {
             "subdomain": "제조 협동로봇",
             "paying_customer": "대기업 제조라인",
-            "problem": "조립 공정 자동화",
+            "customer_problem": "조립 공정 자동화",
         },
     }
 
@@ -211,6 +211,12 @@ class MarketAgentTests(unittest.TestCase):
         self.assertIn("제조 협동로봇", questions["market"])
         self.assertIn("대기업 제조라인", questions["demand"])
         self.assertIn("조립 공정 자동화", questions["competition"])
+
+    def test_questions_skip_unknown_profile_fields(self):
+        profile = {"subdomain": "물류 로봇", "paying_customer": "정보 부족", "customer_problem": "정보 부족"}
+        questions = market.build_questions({"name": "A"}, profile)
+        self.assertNotIn("정보 부족", " ".join(questions.values()))
+        self.assertIn("주요 고객", questions["demand"])
 
     def test_rejects_missing_profile_instead_of_guessing(self):
         with self.assertRaisesRegex(ValueError, "profile.subdomain"):

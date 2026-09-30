@@ -92,6 +92,12 @@ class MarketAnalysisOutput(MarketAnalysis):
     retrieval: dict[Topic, TopicRetrieval]
 
 
+def _known(value: object) -> str | None:
+    """customer_profile writes "정보 부족" instead of guessing; treat it as absent."""
+    text = str(value or "").strip()
+    return None if not text or text == "정보 부족" else text
+
+
 def build_questions(startup: Mapping[str, Any], profile: Mapping[str, Any]) -> dict[Topic, str]:
     """질의 생성: profile의 세부 분야·고객·문제로 주제별 검색 질문을 만든다.
 
@@ -99,8 +105,8 @@ def build_questions(startup: Mapping[str, Any], profile: Mapping[str, Any]) -> d
     경쟁사 검색이 스타트업맵의 해당 칸과 바로 맞물린다.
     """
     subdomain = str(profile["subdomain"])
-    customer = profile.get("paying_customer") or "주요 고객"
-    problem = profile.get("problem") or f"{subdomain} 자동화"
+    customer = _known(profile.get("paying_customer")) or "주요 고객"
+    problem = _known(profile.get("customer_problem")) or f"{subdomain} 자동화"
     segment = " ".join(
         str(value) for value in (profile.get("industry"), profile.get("tech_type")) if value
     ) or subdomain

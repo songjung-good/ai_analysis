@@ -10,11 +10,12 @@
 | `selected_startup` | `name` | O | 경쟁사 목록에서 자기 자신 제외 |
 | `profile` | `subdomain` | O | 시장 규모 검색 질의 |
 | `profile` | `paying_customer` | | 수요 검색 질의 |
-| `profile` | `problem` | | 수요·경쟁 검색 질의 |
+| `profile` | `customer_problem` | | 수요·경쟁 검색 질의 |
 | `profile` | `industry` | | 스타트업맵 적용 산업 8개 중 하나. 경쟁사 검색·산업 불일치 제거 |
 | `profile` | `tech_type` | | 스타트업맵 기술 유형 4개 중 하나. 경쟁사 검색 |
 
-필수 필드가 없으면 추정하지 않고 `ValueError`를 냅니다.
+필수 필드가 없으면 추정하지 않고 `ValueError`를 냅니다. `"정보 부족"` 값은 없는 것으로 처리합니다.
+`subdomain`, `paying_customer`, `customer_problem`은 `agents/profile.py`의 `CustomerProfile`이 채웁니다. `industry`, `tech_type`은 현재 profile에 없어 경쟁사 산업 검증이 꺼진 상태이며, 추가하면 바로 적용됩니다.
 
 `industry` 값: 제조·산업, 물류·유통, 모빌리티·교통, 의료·헬스케어, 건설·인프라, 농업·식품, 서비스·생활, 국방·안보
 `tech_type` 값: 로봇, 자율주행, 드론·UAM, AI·SW 플랫폼
