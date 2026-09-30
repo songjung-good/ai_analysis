@@ -24,7 +24,7 @@ Physical AI·Robotics 기업의 제품이 실제 고객 현장에서 사용되�
 | State 쓰기 계약 | 완료 | `business_analysis`, `references`만 반환하도록 계약 정의 |
 | 검색 Tool 기반 | 완료 | 공통 `Evidence` 반환, 호출당 최대 5개 검색 결과 |
 | 환경변수 예시 | 완료 | 기준 환경의 변수명 반영, 비밀값은 빈칸 처리 |
-| 실제 실행 환경 확인 | 예정 | 프로젝트 `.env`, 필수 키와 모델명 설정 및 호출 확인 필요 |
+| 실행 환경 및 초기화 확인 | 완료 | Python 3.11.15, 프로젝트 `.env` 필수값, ChatOpenAI·TavilySearch 초기화 확인. 실제 API 호출은 미검증 |
 | 출력 모델·프롬프트·분석 로직 | 예정 | 아래 순서로 구현 |
 
 문서의 출력 필드와 검색 횟수는 제안이며 구현 단계에서 확정한다. 실제로 검증하지 않은 항목을 완료로 표시하지 않는다.
@@ -48,9 +48,8 @@ Physical AI·Robotics 기업의 제품이 실제 고객 현장에서 사용되�
 필수 변수는 `OPENAI_API_KEY`, `OPENAI_MODEL`, `TAVILY_API_KEY`다. LangSmith 관련 변수는 선택 사항이다. `.env.example`은 공유용 변수 목록이며 실제 실행값은 프로젝트 `.env`에 보관한다.
 
 ```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
+uv venv --python 3.11
+uv pip install --python .venv/bin/python -r requirements.txt
 ```
 
 환경 로더는 저장소의 기존 구현이 있는지 먼저 확인한다. 없다면 프로젝트 `.env`를 명시적으로 로딩한다. 기존 `.env`를 덮어쓰지 않으며 키와 토큰은 로그·문서·테스트 데이터에 기록하지 않는다.
@@ -171,6 +170,7 @@ State를 직접 변경하지 않는다. 누적 `references` 전체를 다시 반
 |---|---|---|---|---|---|
 | 2026-09-30 | 환경 준비 | `.env.example`에 기준 환경 변수명 반영, 비밀값 제거 | 완료 | 변수 포함 여부와 비밀값 빈칸 검증 | 실제 실행 환경의 필수 키·모델 확인 |
 | 2026-09-30 | 계획 | 구현 순서, 분석 판단 기준, 검증 사례 문서화 | 완료 | 본 문서 | 입력·출력 모델 확정 |
+| 2026-09-30 | 1단계: 환경 | uv 기반 `.venv`와 프로젝트 `.env` 확인 | 완료 | Python 3.11.15, 필수 변수 3개 존재, ChatOpenAI·TavilySearch 초기화 성공. 비밀값 출력 및 API 요청 없이 확인 | 2단계: 기업 입력과 `profile` 구조 확인. 키 유효성·모델 접근 권한은 실제 호출 단계에서 확인 |
 
 ### 작업 기록 추가 양식
 
