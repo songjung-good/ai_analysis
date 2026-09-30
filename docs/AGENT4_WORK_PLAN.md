@@ -25,6 +25,7 @@ Physical AI·Robotics 기업의 제품이 실제 고객 현장에서 사용되�
 | 검색 Tool 기반 | 완료 | 공통 `Evidence` 반환, 호출당 최대 5개 검색 결과 |
 | 환경변수 예시 | 완료 | 기준 환경의 변수명 반영, 비밀값은 빈칸 처리 |
 | 실행 환경 및 초기화 확인 | 완료 | Python 3.11.15, 프로젝트 `.env` 필수값, ChatOpenAI·TavilySearch 초기화 확인. 실제 API 호출은 미검증 |
+| 2단계 입력 계약 및 예시 | 완료 | `selected_startup` 4개 필드와 `profile` 5개 필드, 누락 처리 규칙, 가상 입력 JSON 2개 확정. 실행 로직 반영은 예정 |
 | 출력 모델·프롬프트·분석 로직 | 예정 | 아래 순서로 구현 |
 
 문서의 출력 필드와 검색 횟수는 제안이며 구현 단계에서 확정한다. 실제로 검증하지 않은 항목을 완료로 표시하지 않는다.
@@ -56,7 +57,16 @@ uv pip install --python .venv/bin/python -r requirements.txt
 
 ### 2~3단계: 입력과 출력 계약
 
-기업명이 없으면 입력 오류로 처리한다. 분야·고객 정보는 앞선 분류 Agent가 전달하는 실제 구조를 확인한 뒤 참조 키를 확정한다. 병렬 실행되는 `technical_analysis`, `market_analysis`를 입력 전제로 사용하지 않는다.
+입력 계약은 [Basecode 개발 계약](BASECODE.md#4번-agent-입력-계약)에 기록했다. `selected_startup`은 `name`, `product`, `funding_stage`, `team`을 사용한다. `profile`은 `subdomain`, `paying_customer`, `customer_problem`, `info_sufficiency`, `missing_info`를 사용한다.
+
+기업명이 없거나 공백뿐이면 `ValueError`로 처리한다. 제품·고객 정보가 부족하면 누락 필드를 기록하고 기업명으로 검색한다. `profile`이 없어도 기업명이 있으면 진행하며, 값이 제공되었는데 타입이 잘못된 경우에는 `TypeError`로 처리한다. 상위 Agent의 `missing_info`도 보존한다. 병렬 실행되는 `technical_analysis`, `market_analysis`를 입력 전제로 사용하지 않는다.
+
+테스트용 입력은 다음 두 가지이며 모두 가상 기업이다.
+
+- [정보가 갖춰진 입력](../tests/fixtures/business_input_complete.json): 기업 4개 필드와 사용자 제공 `profile` 5개 필드를 포함한다. `충분`은 입력 충분성 표시이며 유료 운영 근거가 있다는 의미가 아니다.
+- [기업명만 있는 입력](../tests/fixtures/business_input_name_only.json): `profile`과 선택 기업 정보 없이도 기업명 검색을 시작할 수 있어야 한다. 누락을 기록하고 임의 값을 채우지 않는다.
+
+이 단계는 계약·예시 확정이며, API 검색과 실제 입력 검증 함수 구현은 이후 단계에서 진행한다.
 
 `business_analysis`의 출력 구조 제안:
 
@@ -154,7 +164,8 @@ State를 직접 변경하지 않는다. 누적 `references` 전체를 다시 반
 | 다른 기업을 연속 분석 | 앞 기업 분석이 뒤 기업 결과에 섞이지 않음 |
 | Graph 병렬 실행 | 다른 Agent 소유 키를 쓰지 않고 결과가 투자 판단에 전달됨 |
 
-- [ ] 출력 모델과 실제 입력 구조를 확정했다.
+- [x] 실제 입력 구조와 누락 처리 계약을 확정했다.
+- [ ] 출력 모델을 확정했다.
 - [ ] `business.py`의 `NotImplementedError`를 분석 로직으로 대체했다.
 - [ ] 모든 사실 주장을 제공된 출처 ID와 연결했다.
 - [ ] 미확인 정보와 검색·모델 호출 실패를 구분했다.
@@ -171,6 +182,7 @@ State를 직접 변경하지 않는다. 누적 `references` 전체를 다시 반
 | 2026-09-30 | 환경 준비 | `.env.example`에 기준 환경 변수명 반영, 비밀값 제거 | 완료 | 변수 포함 여부와 비밀값 빈칸 검증 | 실제 실행 환경의 필수 키·모델 확인 |
 | 2026-09-30 | 계획 | 구현 순서, 분석 판단 기준, 검증 사례 문서화 | 완료 | 본 문서 | 입력·출력 모델 확정 |
 | 2026-09-30 | 1단계: 환경 | uv 기반 `.venv`와 프로젝트 `.env` 확인 | 완료 | Python 3.11.15, 필수 변수 3개 존재, ChatOpenAI·TavilySearch 초기화 성공. 비밀값 출력 및 API 요청 없이 확인 | 2단계: 기업 입력과 `profile` 구조 확인. 키 유효성·모델 접근 권한은 실제 호출 단계에서 확인 |
+| 2026-09-30 | 2단계: 입력 계약 | 기존 기업 4개 필드, 사용자 제공 `profile` 5개 필드, 누락 처리 규칙과 입력 JSON 2개 작성 | 완료 | JSON 형식·필드 타입·입력 사례 검증. 실행 로직은 미구현 | 3단계: Pydantic 출력 모델 정의 |
 
 ### 작업 기록 추가 양식
 
@@ -190,7 +202,8 @@ State를 직접 변경하지 않는다. 누적 `references` 전체를 다시 반
 
 | 날짜 | 변경 항목 | 기존 기준 | 변경 기준 | 변경 이유 및 검증 |
 |---|---|---|---|---|
-| 작성 시 입력 |  |  |  |  |
+| 2026-09-30 | `profile` 입력 | 자유로운 `dict`, 참조 키 미확정 | `subdomain`, `paying_customer`, `customer_problem`, `info_sufficiency`, `missing_info` | 분야·고객 분류 Agent와의 사용자 제공 계약 반영. 최상위 State 키 변경 없음 |
+| 2026-09-30 | 입력 누락 | 기업명 필수라는 원칙만 기록 | 기업명 누락 오류, 선택 정보 누락 기록 후 기업명 검색, 잘못된 타입 오류 | 정보 부족과 잘못된 입력을 구분하고 병렬 Agent 의존 방지 |
 
 ## 7. 관련 문서와 코드
 
