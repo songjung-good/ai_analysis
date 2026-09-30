@@ -1,0 +1,26 @@
+{
+  "started_at": "2026-09-30T04:24:23.409701+00:00",
+  "model": "gpt-5-nano",
+  "input": {
+    "selected_startup": {
+      "name": "Agility Robotics",
+      "product": "Digit",
+      "funding_stage": "",
+      "team": []
+    },
+    "profile": {
+      "subdomain": "물류·창고 로봇",
+      "paying_customer": "물류·창고 운영 기업",
+      "customer_problem": "반복적인 물류 작업의 인력 확보와 자동화가 어렵다.",
+      "info_sufficiency": "예시 입력: 사실 검증 필요",
+      "missing_info": [
+        "투자 단계 및 팀 정보 미확인",
+        "고객·제품 문맥은 실행 예시이며 별도 검증 필요"
+      ]
+    }
+  },
+  "searches": [],
+  "status": "failed",
+  "error_type": "ConnectionError",
+  "finished_at": "2026-09-30T04:24:23.591374+00:00"
+}

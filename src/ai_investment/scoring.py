@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from numbers import Real
 from typing import Mapping
 
 from pydantic import BaseModel, ConfigDict
@@ -35,6 +36,8 @@ def calculate_score(
     if unknown:
         raise ValueError(f"unknown score fields: {', '.join(sorted(unknown))}")
 
+    if any(isinstance(value, bool) or not isinstance(value, Real) for value in scores.values()):
+        raise ValueError("scores must be real numbers, not booleans or strings")
     normalized = {name: float(value) for name, value in scores.items()}
     invalid = [
         name
@@ -55,9 +58,7 @@ def calculate_score(
             missing_fields=missing,
         )
 
-    weighted_score = round(
-        sum(normalized[name] * weight for name, weight in WEIGHTS.items()), 2
-    )
+    weighted_score = math.fsum(normalized[name] * weight for name, weight in WEIGHTS.items())
     if force_hold:
         decision: Decision = "hold"
     elif weighted_score >= 4.0:

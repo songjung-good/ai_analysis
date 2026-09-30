@@ -1,0 +1,314 @@
+{
+  "started_at": "2026-09-30T04:25:06.035335+00:00",
+  "model": "gpt-5-nano",
+  "input": {
+    "selected_startup": {
+      "name": "Agility Robotics",
+      "product": "Digit",
+      "funding_stage": "",
+      "team": []
+    },
+    "profile": {
+      "subdomain": "물류·창고 로봇",
+      "paying_customer": "물류·창고 운영 기업",
+      "customer_problem": "반복적인 물류 작업의 인력 확보와 자동화가 어렵다.",
+      "info_sufficiency": "예시 입력: 사실 검증 필요",
+      "missing_info": [
+        "투자 단계 및 팀 정보 미확인",
+        "고객·제품 문맥은 실행 예시이며 별도 검증 필요"
+      ]
+    }
+  },
+  "searches": [
+    {
+      "query": "Agility Robotics Digit 물류·창고 운영 기업 고객 도입 유료 계약 시험 운영 customer deployment paid contract pilot",
+      "results": [
+        {
+          "source_id": "7ae16657669d43fb",
+          "title": "GXO Conducting Industry-Leading Pilot of Human-Centric Robot | Agility",
+          "url": "https://www.agilityrobotics.com/content/gxo-conducting-industry-leading-pilot-of-human-centric-robot",
+          "page": null,
+          "excerpt": "LinkedinXCopy Link\n\nGXO Logistics, Inc. (NYSE: GXO), the world’s largest pure-play contract logistics provider, announced today that it is conducting a proof-of-concept pilot for Agility Robotics’ human-centric robot “Digit.” The robot is being tested on logistics tasks at SPANX’s facility in Flowery Branch, Ga., where GXO manages warehouse operations for the global womenswear brand’s direct-to-consumer and in-store orders. [...] Agility Robotics and GXO are teaching Digit to undertake repetitive tasks such as moving totes from autonomous mobile robots (AMRs) and placing them onto conveyors. Reduction of such repetition reduces strain, increases safety for team members and frees them to do more value-added work in the warehouse. GXO’s recent survey confirms better engagement and higher job satisfaction among team members when working with technology. If this initial phase proves successful, it will pave the way for [...] Digit — which is 5'9\" tall, weighs 140 pounds and can lift up to 35 pounds — is designed to work in human spaces and can be easily adapted to various warehouse tasks through software updates.",
+          "published_at": null
+        },
+        {
+          "source_id": "a7166fbdb13a7d5c",
+          "title": "DCVC | Agility Robotics’ human-centric robot, Digit, selected for…",
+          "url": "https://www.dcvc.com/news-insights/agility-robotics-human-centric-robot-digit-selected-for-another-groundbreaking-logistics-pilot-program",
+          "page": null,
+          "excerpt": "Skip to content\n\nFEATURE: Read our 2026 Deep Tech Opportunities report\n\nNews & Insights News\n\n# Agility Robotics’ human-centric robot, Digit, selected for another ground­breaking logistics pilot program\n\nBy  Matthew Ocko\n\nTesting Digit in a live warehouse for SPANX operated by GXO, the world’s largest pure-play contract logistics provider, marks another milestone in Agility’s deployment of practical robotics addressing a near-term multi­bil­lion-dollar annual market\n\n06 Dec 2023 [...] Under the GXO/SPANX pilot, Digit is being tested on logistics tasks at a facility outside Atlanta where GXO manages warehouse operations for SPANX, the global womenswear brand. Digit’s primary role involves handling repetitive tasks, specif­i­cally trans­fer­ring items from autonomous mobile robots to conveyors. This job, while simple for Digit, is critical in reducing the physical demands on human workers and increasing overall safety in the workplace. [...] Digit, was selected by GXO Logistics Inc., the world’s largest pure-play contract logistics provider, for a ground­breaking pilot program in a live warehouse environment.",
+          "published_at": null
+        },
+        {
+          "source_id": "5d85e73b8b0acc8e",
+          "title": "Agility Robotics' Digit humanoids land first official job",
+          "url": "https://www.therobotreport.com/agility-robotics-digit-humanoid-lands-first-official-job",
+          "page": null,
+          "excerpt": "# Agility Robotics’ Digit humanoid lands first official job\n\nBy Steve Crowe |\n\nAgility Robotics continues to have a leg up in the humanoid race. The company today signed a multi-year deal with GXO Logistics Inc., the world’s largest pure-play contract logistics provider, to deploy its Digit humanoids in various logistics operations.\n\nThe first official deployment of Digit is already up and running, generating real revenue for Agility Robotics, the inaugural RBR50 Robot of the Year winner. [...] GXO signed a multi-year deal to formally deploy the Digit humanoid in warehouses. | Credit: Agility Robotics\n\n## The race for humanoids heats up — again\n\nThis is a major milestone for Agility Robotics, which was founded in 2015. The company initially built the Cassie robot for researchers and developers before turning its attention to commercial humanoids. But Agility can’t rest on its laurels. [...] “Our R&D approach is to partner with developers all over the world to help them build and validate practical use cases that improve the working environment for our employees while optimizing operations for our customers,” said Adrian Stoch, chief automation officer at GXO Logistics. “Agility shares this philosophy, and Digit is the perfect addition to work alongside our people in our fulfillment center. We’re delighted to progress our partnership through this critical milestone.”",
+          "published_at": null
+        },
+        {
+          "source_id": "f15d5ed84b5ec315",
+          "title": "Agility Unveils Digit 5 Humanoid Robot Built for Cooperatively Safe Work at Scale — TradingView News",
+          "url": "https://www.tradingview.com/news/prnewswire:011d8aadfd09c:0-agility-unveils-digit-5-humanoid-robot-built-for-cooperatively-safe-work-at-scale",
+          "page": null,
+          "excerpt": "Customer commitment is translating into orders. As of May 2026, Agility had more than $300 million in multi-year customer orders for Digit 5 subject to satisfaction of certain contractual milestones, and a sales pipeline of prospective customers across manufacturing, warehousing, and logistics, reflecting accelerating demand as customers move from pilot programs to full-scale deployment.\n\nSmarter Fleets with Agility Arc [...] Headquartered in Salem, Oregon, with offices in Pittsburgh, Pennsylvania and Fremont, California, Agility Robotics' mission is to build robot partners that augment the human workforce. Agility's groundbreaking general-purpose humanoid robot, Digit, is the first multi-purpose, human-centric robot that is Made for Work® and commercially deployed today. With more than 65,000 hours of real-world operation combined with industry-leading safety standards, we're pioneering a new era of automation that [...] In addition to the United States and Canada, for the first time, Agility plans to make Digit available for commercial deployment outside North America, starting with the European Union and United Kingdom. Digit 5 is expected to carry a CE mark and additional regulatory marks to enable market access to the EU, Great Britain and Northern Ireland. Early access to Digit 5 is expected to begin in the first half of 2027, with general availability for manufacturing, warehouse and distribution",
+          "published_at": null
+        },
+        {
+          "source_id": "b55fb5bcd474436b",
+          "title": "Industry Insights: Agility's CEO Talks Digit 5 and Going Public | Association for Advancing Automation",
+          "url": "https://www.automate.org/robotics/industry-insights/agility-robotics-ceo-on-the-realities-of-real-world-humanoid-deployment",
+          "page": null,
+          "excerpt": "The robotics firm has begun disclosing financials ahead of the merger’s close, setting the scenes for a level of transparency heretofore unseen from an American humanoid firm. A recent filing revealed that the new robot is the subject of a massive $300 million customer deployment deal, which comprises the lion’s share of commitments. [...] Yeah, it's our first customer that has gone through our customer acceleration program, where we take them through what they're trying to solve for. That brings them to the point of deployment. We've hit the metrics, and they have now placed an order for Digit 5. It's really the scale robot because Digit 4 inside of a work cell has limited deployment, where you need that much real estate. Digit 5 is the scale robot for all of our customers going forward. [...] In terms of a $300 million order, can you give a rough idea of how many robots we're talking about?  \n  \nNo, we haven't gone there, but the confidence that customers had in us with what they saw with Digit 4 to place that order -- and that's basically the pipeline for customers. Prove out their workflow with Digit 4 and then deploy with Digit 5.",
+          "published_at": null
+        }
+      ]
+    },
+    {
+      "query": "Agility Robotics Digit 가격 설치 유지보수 생산성 pricing maintenance productivity ROI case study",
+      "results": [
+        {
+          "source_id": "9044150749ca2231",
+          "title": "Agility Digit Review 2026: Specs, Price & Paid Deployments | RoboZaps Blog",
+          "url": "https://blog.robozaps.com/b/agility-robotics-digit-review",
+          "page": null,
+          "excerpt": "Digit has no sticker price, and that is not evasion, it is the business model: Agility Robotics rents Digit through Robots-as-a-Service contracts that bundle the robot, its Agility Arc cloud software, workcell, fleet management and maintenance. The most concrete economics come from the June 2026 SPAC investor deck, which models illustrative RaaS pricing of $8,500 per month per Digit, about $100,000 a year, set at a discount to a fully burdened human labor rate of roughly $30.50 an hour (SEC [...] :   Agility has never published a rate card. Digit is offered through Robots-as-a-Service contracts bundling the robot, software, workcell and maintenance. The June 2026 SPAC investor deck models illustrative pricing of $8,500 per month per Digit (about $100,000 a year), set at a discount to a fully burdened human labor rate of ~$30.50/hour — the widely quoted \"$30 an hour\" is that human-labor comparator, not Digit's price. The $250,000 seen on directories was Digit's 2020 direct-purchase [...] | Circulating claim | What checking finds |\n --- |\n| \"Digit costs $250,000\" | Historical, not current: $250,000 was Digit's real direct-purchase price in 2020; Agility stopped publishing a list price, and by 2024 IEEE Spectrum was told the newer generation would come in under that figure |\n| \"Digit rents for $30/hour\" | Misread: $30/hour is the fully loaded human-labor comparator in Agility's ROI framing; the June 2026 investor deck models ~$8,500/month per Digit |",
+          "published_at": null
+        },
+        {
+          "source_id": "eb172aba10358ca4",
+          "title": "DCVC | DCVC DTOR 2024: Agility Robotics is a real-world case study in…",
+          "url": "https://www.dcvc.com/news-insights/dcvc-dtor-2024-agility-robotics-is-a-real-world-case-study-in-operational-data",
+          "page": null,
+          "excerpt": "Agility Robotics, which we’ve backed since 2020, makes and sells Digit, a flexible bipedal robot designed to work alongside humans in factories and distri­b­u­tion centers designed for humans. The company is currently testing Digit in partnership with Amazon Robotics for tasks like carrying containers, called totes, from shelves to conveyors and recycling empty containers. In recent demon­stra­tions, Agility has shown that it’s possible to use a large language model to translate [...] “If you want to improve the throughput of a facility, you need an actual expert system that has the context of the problem you’re trying to solve,” Wise says. ​“And the only way we get that context is, one, by measuring the real world, and, two, under­standing why Digit did something in the real world.” [...] model to translate natural-language requests from human users into plans Digit can carry out. But these same experiments show the limitations of AI models on their own, says Melonee Wise, Agility’s chief product officer.",
+          "published_at": null
+        },
+        {
+          "source_id": "7148336904b2e8ab",
+          "title": "The Insane Cost of Agility Robotics' Digit Robot",
+          "url": "https://www.youtube.com/watch?v=Q1XmBGNzgvM",
+          "page": null,
+          "excerpt": "[3:07] robot. It's called Digit. Under one business model outlined in the filing, a customer buying the company's next generation Digit version 5 will pay\n[3:16] about $200,000 USD. That's a lot of money for the robot itself plus a roughly $20,000\n[3:26] onetime deployment fee. And after that one, you have to pay again for software maintenance, which will run at about\n[3:34] 36,000 USD per year. And this is per robot. So in case you're going to buy a few robots, maybe more than two units, [...] [5:59] already USD. In 12 months you're spending almost 100. And remember there's again they're going to charge\n[6:05] you deployment fee of 25,000. Deployment fee is 25,000. So this means at the end of the 5 year period you're going to\n[6:14] spend 535,000 USD which is a lot of money. So the article goes on to says that the figures\n[6:22] are illustrative estimates that agility used to model digits economics and do not reflect the cost a real life [...] [7:22] them, your return in investment will happen something around 1.1 years. I don't know if you believe that if you're\n[7:29] spending uh in one year you are spending that is 200,000 USD plus 20 that's 220 +\n[7:37] 36 that is um 256 256k so according to them in one year like\n[7:45] 1.1 years of course you will have already made your money back that you spend on buying this robot I don't know",
+          "published_at": null
+        },
+        {
+          "source_id": "04c39319fa8c35ac",
+          "title": "Want a Humanoid in Your Factory? Here's How Much One Could Cost You. - Business Insider",
+          "url": "https://www.businessinsider.com/cost-of-humanoid-robot-factory-worker-agility-robotics-digit-v5-2026-9",
+          "page": null,
+          "excerpt": "Under one business model outlined in the filing, a customer buying the company's next-generation Digit v5 would pay about $200,000 for the robot itself, plus a roughly $20,000 onetime deployment fee. Afterward, software and maintenance would run about $36,000 a year per bot.\n\nAdd that up over a five-year \"useful life of Digit\" assumed by Agility, and the tab for one humanoid robot comes to about $400,000.",
+          "published_at": null
+        },
+        {
+          "source_id": "35cbc7f2a01079df",
+          "title": "Agility Robotics reports $1.8M revenue ahead of humanoid SPAC",
+          "url": "https://www.therobotreport.com/agility-robotics-reports-18m-revenue-ahead-of-humanoid-spac",
+          "page": null,
+          "excerpt": "Under direct ownership, customers pay about $200,000 upfront, plus a $20,000 deployment fee and roughly $36,000 a year for software and maintenance. Over five years, Agility estimates that would produce about $400,000 in revenue per robot.\n\nDeployment options for Agility’s Digit humanoid. | Credit: Agility Robotics via S-4 filing\n\n## Long-term growth needed [...] Under RaaS, Agility retains ownership of the robot and charges customers about $8,500 per month, roughly $102,000 annually, for access to the robot, software and maintenance, plus a $25,000 deployment fee. Based on the company’s assumptions, that works out to about $535,000 in revenue per robot over its five-year lifespan. [...] Agility’s S-4 lays out an ambitious deployment trajectory of around 800 Digit v5 units in 2027, 7,000 by 2030 and up to 25,000 by 2035. At the $8,500 monthly RaaS rate, 25,000 robots would translate to roughly $2.55 billion in annual subscription revenue.",
+          "published_at": null
+        }
+      ]
+    },
+    {
+      "query": "Agility Robotics Digit 안전 인증 현장 도입 safety certification deployment",
+      "results": [
+        {
+          "source_id": "9044150749ca2231",
+          "title": "Agility Digit Review 2026: Specs, Price & Paid Deployments | RoboZaps Blog",
+          "url": "https://blog.robozaps.com/b/agility-robotics-digit-review",
+          "page": null,
+          "excerpt": "In November 2025 Digit passed an OSHA-recognized NRTL safety field inspection at a live customer fulfillment site, assessed against ANSI/RIA R15.08 and ISO 13849, a first that Agility describes as \"setting an important precedent for the humanoid industry\" (Agility, official). Keep the scope exact, as Agility itself does: NRTL field evaluations are site-specific, so this is field labeling at one site, not a blanket product certification. The current robot also carries a genuine industrial safety [...] Is the Digit robot safe?\n:   It carries a genuine industrial safety package (CAT1 stop, Safety PLC at PL d, E-stops, FailSafe over EtherCAT), and in November 2025 passed an OSHA-recognized NRTL safety field inspection at a live customer site — a first Agility describes as a precedent for the humanoid industry, and site-specific rather than a product certification. No public safety incident involving Digit appears in credible reporting through July 2026. [...] industrial safety package (CAT1 stop, PL d Safety PLC, E-stops, FSoE) from the ProMat 2025 refresh. The certification ambition, ISO functional-safety clearance for fence-free operation, rides on v5. No public safety incident involving Digit appears in any credible outlet through July 2026, a cleaner sheet than several rivals.",
+          "published_at": null
+        },
+        {
+          "source_id": "466188b77a38ac12",
+          "title": "Agility Robotics' Digit Shows Promise in Line-Side Operations with New ISO Safety Standard on the Horizon | Automation World",
+          "url": "https://www.automationworld.com/factory/robotics/article/55303585/agility-robotics-agility-robotics-digit-shows-promise-in-line-side-operations-with-new-iso-safety-standard-on-the-horizon",
+          "page": null,
+          "excerpt": "Real-world deployments of Digit demonstrate the robot’s viability in industrial settings. For example, GXO, a major logistics provider, has been using Digit for more than a year, with Digit successfully moving more than 300,000 orders from their facility. And Schaeffler, a manufacturer of bearings for automotive, aerospace and industrial uses, has been using Digit for several months to handle the loading and unloading of machine washers.  Current operational constraints require Digit to work [...] While current deployments focus on contained work environments, the foundation being established through standardization efforts and real-world testing positions these robots for broader manufacturing integration. As manufacturing facilities continue to deal with labor shortages and the need for flexible automation, robots like Digit could represent a bridge between traditional fixed automation and fully autonomous systems. The combination of mobility, manipulation capabilities and [...] Robotics\n\n# Agility Robotics' Digit Shows Promise in Line-Side Operations with New ISO Safety Standard on the Horizon\n\nWith real-world deployments of Digit already moving more than 300,000 orders and demonstrating the ability to achieve 98-100% availability rates, Agility Robotics is proving that bipedal robots can handle demanding industrial tasks while integrating with existing automation infrastructure.\n\nDavid Greenfield\n\nRelated To:\n\nAgility Robotics\n\nJuly 30, 2025\n\n5 min read",
+          "published_at": null
+        },
+        {
+          "source_id": "67ef3a7ce77e8629",
+          "title": "Agility Robotics Debuts Digit 5 Humanoid With New Safety Architecture – Unite.AI",
+          "url": "https://www.unite.ai/agility-robotics-debuts-digit-5-humanoid-with-new-safety-architecture",
+          "page": null,
+          "excerpt": "Agility plans to make Digit available for commercial deployment outside North America for the first time, starting with the European Union and United Kingdom, with Digit 5 expected to carry a CE mark and additional regulatory marks enabling market access to the EU, Great Britain and Northern Ireland. Early access to Digit 5 is expected to begin in the first half of 2027, with general availability for manufacturing, warehouse and distribution operators expected by the end of 2027. [...] Digit 5 integrates with Agility Arc, the company’s cloud platform for deploying and managing Digit fleets, which gives operators visibility into fleet KPIs such as uptime, throughput and Mean Time Between Incidents and connects with existing Warehouse Management, Warehouse Execution and Manufacturing Execution Systems. Agility’s Digit 5 product page states that the solution was trained on 65,000 hours of real-world operational data. [...] Agility said Digit has the longest tenure among humanoid robots actively working in industrial facilities, with nearly three years of continuous commercial deployment. Digit 4 has logged more than 65,000 hours of operational time across customer sites in North America, including GXO, Schaeffler, Amazon and Toyota Motor Manufacturing Canada, according to the company. At GXO’s Flowery Branch facility near Atlanta, Digit 4 reached a cumulative 100,000-tote milestone while maintaining approximately",
+          "published_at": null
+        },
+        {
+          "source_id": "bc566001a04a4b88",
+          "title": "Safety First: Agility's Digit Passes OSHA-recognized Safety Field Inspection Agility’s humanoid robot, Digit, has passed a rigorous safety field inspection by a NRTL (Nationally Recognized Testing… | Agility Robotics | 12 comments",
+          "url": "https://www.linkedin.com/posts/agilityrobotics_safety-first-agilitys-digit-passes-osha-recognized-activity-7398775697302937600-qtKV",
+          "page": null,
+          "excerpt": "Huge acheivement Agility Robotics! Well done and so pleased to see safety is such a huge priority for your organization!\n\nLike Reply  1 Reaction\n\nEric O.   1w \n\n Report this comment\n\nGreat to see and be part of this. Great teamwork by everyone and our partners!\n\nLike Reply  1 Reaction\n\ndavid Hind   1w \n\n Report this comment\n\nCongratulations TEAM and Digit Huge achievement\n\nLike Reply  1 Reaction\n\nClayton Cruise   1w \n\n Report this comment\n\nCongratulations everyone. Great achievement 👏🏼 [...] Safety First: Agility's Digit Passes OSHA-recognized Safety Field Inspection Agility’s humanoid robot, Digit, has passed a rigorous safety field inspection by a NRTL (Nationally Recognized Testing Laboratory). This milestone represents our unwavering commitment to safety and our real-world readiness to scale humanoids in commercial settings. We believe in meaningful innovation focused on delivering what matters most to our customers - not just innovation for innovation's sake. Read more about [...] Read more about this major moment ⬇️",
+          "published_at": null
+        },
+        {
+          "source_id": "c1240ec2d3d305dd",
+          "title": "Agility Unveils Digit 5 Humanoid Robot Built for Cooperatively Safe Work at Scale | Agility",
+          "url": "https://www.agilityrobotics.com/content/agility-unveils-digit-5-humanoid-robot-built-for-cooperatively-safe-work-at-scale",
+          "page": null,
+          "excerpt": "Headquartered in Salem, Oregon, with offices in Pittsburgh, Pennsylvania and Fremont, California, Agility Robotics' mission is to build robot partners that augment the human workforce. Agility's groundbreaking general-purpose humanoid robot, Digit, is the first multi-purpose, human-centric robot that is Made for WorkⓇ and commercially deployed today. With more than 65,000 hours of real-world operation combined with industry-leading safety standards, we're pioneering a new era of automation that [...] In addition to the United States and Canada, for the first time, Agility plans to make Digit available for commercial deployment outside North America, starting with the European Union and United Kingdom. Digit 5 is expected to carry a CE mark and additional regulatory marks to enable market access to the EU, Great Britain and Northern Ireland. Early access to Digit 5 is expected to begin in the first half of 2027, with general availability for manufacturing, warehouse and distribution [...] Safety has been one of the biggest obstacles to scaling humanoid robots in commercial settings. Digit 5's new safety architecture is designed to reduce dependence on the protective barriers typically used in traditional robotic automation, allowing it to work in close proximity to people. Building on the milestone of becoming the first humanoid to pass an independent field evaluation on a customer production line for industrial safety standards administered by the U.S. Occupational Safety and",
+          "published_at": null
+        }
+      ]
+    }
+  ],
+  "result": {
+    "business_analysis": {
+      "commercialization_stage": "pilot",
+      "stage_reason": "GXO Logistics is conducting a proof-of-concept pilot for Agility's Digit at SPANX facility; evidence indicates a pilot phase rather than a full paid deployment at this time.",
+      "stage_source_ids": [
+        "7ae16657669d43fb",
+        "a7166fbdb13a7d5c"
+      ],
+      "customer_cases": [
+        {
+          "customer_name": "GXO Logistics, Inc.",
+          "use_case": "Testing Digit for repetitive warehouse tasks (transferring totes from AMRs to conveyors) at SPANX facility; aims to reduce physical strain and improve safety.",
+          "operation_stage": "pilot",
+          "is_paid": null,
+          "source_ids": [
+            "7ae16657669d43fb",
+            "a7166fbdb13a7d5c",
+            "5d85e73b8b0acc8e"
+          ]
+        }
+      ],
+      "deployment_costs": [],
+      "deployment_effects": [],
+      "regulatory_risks": [
+        {
+          "risk": "Industrial safety and regulatory certification status for humanoid robot deployments in the USA",
+          "jurisdiction": "USA",
+          "certification_status": "OSHA-recognized safety field inspection passed at a live customer site (Nov 2025) with ISO/functional safety considerations",
+          "follow_up": "Maintain site-specific safety deployments; pursue standardized certifications (ISO) and CE for broader markets",
+          "source_ids": [
+            "bc566001a04a4b88"
+          ]
+        },
+        {
+          "risk": "EU/UK market access and compliance for Digit 5 (CE marking, ISO safety standards)",
+          "jurisdiction": "EU/UK",
+          "certification_status": "CE mark planned; ISO safety standards alignment stated; Digit 5 to enable cross-border deployments",
+          "follow_up": "Obtain CE certification; align with ISO 13849/ISO 10218/ISO 13482 where applicable; verify field safety certifications for EU deployments",
+          "source_ids": [
+            "c1240ec2d3d305dd",
+            "04c39319fa8c35ac",
+            "466188b77a38ac12"
+          ]
+        }
+      ],
+      "evidence_assessment": [
+        {
+          "claim": "GXO conducting a proof-of-concept pilot for Agility's Digit at SPANX facility",
+          "level": "cross_verified",
+          "reason": "Multiple sources report GXO/SPANX pilot and use-case details",
+          "source_ids": [
+            "7ae16657669d43fb",
+            "a7166fbdb13a7d5c",
+            "5d85e73b8b0acc8e"
+          ]
+        },
+        {
+          "claim": "Digit specifications (height/weight, lift capacity) and task focus",
+          "level": "cross_verified",
+          "reason": "Source mentions Digit’s physical specs and its role in handling repetitive tasks in a warehouse",
+          "source_ids": [
+            "7ae16657669d43fb"
+          ]
+        },
+        {
+          "claim": "EU/UK deployment outside North America with CE marking planned for Digit 5",
+          "level": "cross_verified",
+          "reason": "Official communications indicate expansion and CE aim; EU/UK deployment plans stated",
+          "source_ids": [
+            "c1240ec2d3d305dd",
+            "04c39319fa8c35ac"
+          ]
+        },
+        {
+          "claim": "OSH A-recognized safety field inspection passed for Digit",
+          "level": "single_source",
+          "reason": "LinkedIn post notes OSHA-recognized safety field inspection; site-specific",
+          "source_ids": [
+            "bc566001a04a4b88"
+          ]
+        }
+      ],
+      "information_gaps": [
+        "입력 누락: selected_startup.funding_stage",
+        "입력 누락: selected_startup.team",
+        "투자 단계 및 팀 정보 미확인",
+        "고객·제품 문맥은 실행 예시이며 별도 검증 필요",
+        "selected_startup.funding_stage and selected_startup.team information not provided",
+        "Need confirmation whether GXO SPANX engagement is still in pilot or has progressed to paid operation; exact contract status not disclosed",
+        "No disclosed deployment costs, ROI metrics, or TCO for pilot deployments",
+        "Full regulatory certification status (EU CE, ISO safety certifications) not verified across all planned markets"
+      ],
+      "summary": "Evidence confirms a live pilot of Agility Robotics' Digit in warehouse operations via GXO SPANX, with safety field evaluations and expansion plans for EU markets. No confirmed paid_operation data or ROI figures in the provided evidence. Regulatory status includes OSHA field evaluation; CE/ISO considerations for EU deployment are in progress. Further verification needed on funding stage, team, and commercial terms."
+    },
+    "references": [
+      {
+        "source_id": "7ae16657669d43fb",
+        "title": "GXO Conducting Industry-Leading Pilot of Human-Centric Robot | Agility",
+        "url": "https://www.agilityrobotics.com/content/gxo-conducting-industry-leading-pilot-of-human-centric-robot",
+        "page": null,
+        "excerpt": "LinkedinXCopy Link\n\nGXO Logistics, Inc. (NYSE: GXO), the world’s largest pure-play contract logistics provider, announced today that it is conducting a proof-of-concept pilot for Agility Robotics’ human-centric robot “Digit.” The robot is being tested on logistics tasks at SPANX’s facility in Flowery Branch, Ga., where GXO manages warehouse operations for the global womenswear brand’s direct-to-consumer and in-store orders. [...] Agility Robotics and GXO are teaching Digit to undertake repetitive tasks such as moving totes from autonomous mobile robots (AMRs) and placing them onto conveyors. Reduction of such repetition reduces strain, increases safety for team members and frees them to do more value-added work in the warehouse. GXO’s recent survey confirms better engagement and higher job satisfaction among team members when working with technology. If this initial phase proves successful, it will pave the way for [...] Digit — which is 5'9\" tall, weighs 140 pounds and can lift up to 35 pounds — is designed to work in human spaces and can be easily adapted to various warehouse tasks through software updates.",
+        "published_at": null
+      },
+      {
+        "source_id": "a7166fbdb13a7d5c",
+        "title": "DCVC | Agility Robotics’ human-centric robot, Digit, selected for…",
+        "url": "https://www.dcvc.com/news-insights/agility-robotics-human-centric-robot-digit-selected-for-another-groundbreaking-logistics-pilot-program",
+        "page": null,
+        "excerpt": "Skip to content\n\nFEATURE: Read our 2026 Deep Tech Opportunities report\n\nNews & Insights News\n\n# Agility Robotics’ human-centric robot, Digit, selected for another ground­breaking logistics pilot program\n\nBy  Matthew Ocko\n\nTesting Digit in a live warehouse for SPANX operated by GXO, the world’s largest pure-play contract logistics provider, marks another milestone in Agility’s deployment of practical robotics addressing a near-term multi­bil­lion-dollar annual market\n\n06 Dec 2023 [...] Under the GXO/SPANX pilot, Digit is being tested on logistics tasks at a facility outside Atlanta where GXO manages warehouse operations for SPANX, the global womenswear brand. Digit’s primary role involves handling repetitive tasks, specif­i­cally trans­fer­ring items from autonomous mobile robots to conveyors. This job, while simple for Digit, is critical in reducing the physical demands on human workers and increasing overall safety in the workplace. [...] Digit, was selected by GXO Logistics Inc., the world’s largest pure-play contract logistics provider, for a ground­breaking pilot program in a live warehouse environment.",
+        "published_at": null
+      },
+      {
+        "source_id": "5d85e73b8b0acc8e",
+        "title": "Agility Robotics' Digit humanoids land first official job",
+        "url": "https://www.therobotreport.com/agility-robotics-digit-humanoid-lands-first-official-job",
+        "page": null,
+        "excerpt": "# Agility Robotics’ Digit humanoid lands first official job\n\nBy Steve Crowe |\n\nAgility Robotics continues to have a leg up in the humanoid race. The company today signed a multi-year deal with GXO Logistics Inc., the world’s largest pure-play contract logistics provider, to deploy its Digit humanoids in various logistics operations.\n\nThe first official deployment of Digit is already up and running, generating real revenue for Agility Robotics, the inaugural RBR50 Robot of the Year winner. [...] GXO signed a multi-year deal to formally deploy the Digit humanoid in warehouses. | Credit: Agility Robotics\n\n## The race for humanoids heats up — again\n\nThis is a major milestone for Agility Robotics, which was founded in 2015. The company initially built the Cassie robot for researchers and developers before turning its attention to commercial humanoids. But Agility can’t rest on its laurels. [...] “Our R&D approach is to partner with developers all over the world to help them build and validate practical use cases that improve the working environment for our employees while optimizing operations for our customers,” said Adrian Stoch, chief automation officer at GXO Logistics. “Agility shares this philosophy, and Digit is the perfect addition to work alongside our people in our fulfillment center. We’re delighted to progress our partnership through this critical milestone.”",
+        "published_at": null
+      },
+      {
+        "source_id": "04c39319fa8c35ac",
+        "title": "Want a Humanoid in Your Factory? Here's How Much One Could Cost You. - Business Insider",
+        "url": "https://www.businessinsider.com/cost-of-humanoid-robot-factory-worker-agility-robotics-digit-v5-2026-9",
+        "page": null,
+        "excerpt": "Under one business model outlined in the filing, a customer buying the company's next-generation Digit v5 would pay about $200,000 for the robot itself, plus a roughly $20,000 onetime deployment fee. Afterward, software and maintenance would run about $36,000 a year per bot.\n\nAdd that up over a five-year \"useful life of Digit\" assumed by Agility, and the tab for one humanoid robot comes to about $400,000.",
+        "published_at": null
+      },
+      {
+        "source_id": "466188b77a38ac12",
+        "title": "Agility Robotics' Digit Shows Promise in Line-Side Operations with New ISO Safety Standard on the Horizon | Automation World",
+        "url": "https://www.automationworld.com/factory/robotics/article/55303585/agility-robotics-agility-robotics-digit-shows-promise-in-line-side-operations-with-new-iso-safety-standard-on-the-horizon",
+        "page": null,
+        "excerpt": "Real-world deployments of Digit demonstrate the robot’s viability in industrial settings. For example, GXO, a major logistics provider, has been using Digit for more than a year, with Digit successfully moving more than 300,000 orders from their facility. And Schaeffler, a manufacturer of bearings for automotive, aerospace and industrial uses, has been using Digit for several months to handle the loading and unloading of machine washers.  Current operational constraints require Digit to work [...] While current deployments focus on contained work environments, the foundation being established through standardization efforts and real-world testing positions these robots for broader manufacturing integration. As manufacturing facilities continue to deal with labor shortages and the need for flexible automation, robots like Digit could represent a bridge between traditional fixed automation and fully autonomous systems. The combination of mobility, manipulation capabilities and [...] Robotics\n\n# Agility Robotics' Digit Shows Promise in Line-Side Operations with New ISO Safety Standard on the Horizon\n\nWith real-world deployments of Digit already moving more than 300,000 orders and demonstrating the ability to achieve 98-100% availability rates, Agility Robotics is proving that bipedal robots can handle demanding industrial tasks while integrating with existing automation infrastructure.\n\nDavid Greenfield\n\nRelated To:\n\nAgility Robotics\n\nJuly 30, 2025\n\n5 min read",
+        "published_at": null
+      },
+      {
+        "source_id": "bc566001a04a4b88",
+        "title": "Safety First: Agility's Digit Passes OSHA-recognized Safety Field Inspection Agility’s humanoid robot, Digit, has passed a rigorous safety field inspection by a NRTL (Nationally Recognized Testing… | Agility Robotics | 12 comments",
+        "url": "https://www.linkedin.com/posts/agilityrobotics_safety-first-agilitys-digit-passes-osha-recognized-activity-7398775697302937600-qtKV",
+        "page": null,
+        "excerpt": "Huge acheivement Agility Robotics! Well done and so pleased to see safety is such a huge priority for your organization!\n\nLike Reply  1 Reaction\n\nEric O.   1w \n\n Report this comment\n\nGreat to see and be part of this. Great teamwork by everyone and our partners!\n\nLike Reply  1 Reaction\n\ndavid Hind   1w \n\n Report this comment\n\nCongratulations TEAM and Digit Huge achievement\n\nLike Reply  1 Reaction\n\nClayton Cruise   1w \n\n Report this comment\n\nCongratulations everyone. Great achievement 👏🏼 [...] Safety First: Agility's Digit Passes OSHA-recognized Safety Field Inspection Agility’s humanoid robot, Digit, has passed a rigorous safety field inspection by a NRTL (Nationally Recognized Testing Laboratory). This milestone represents our unwavering commitment to safety and our real-world readiness to scale humanoids in commercial settings. We believe in meaningful innovation focused on delivering what matters most to our customers - not just innovation for innovation's sake. Read more about [...] Read more about this major moment ⬇️",
+        "published_at": null
+      },
+      {
+        "source_id": "c1240ec2d3d305dd",
+        "title": "Agility Unveils Digit 5 Humanoid Robot Built for Cooperatively Safe Work at Scale | Agility",
+        "url": "https://www.agilityrobotics.com/content/agility-unveils-digit-5-humanoid-robot-built-for-cooperatively-safe-work-at-scale",
+        "page": null,
+        "excerpt": "Headquartered in Salem, Oregon, with offices in Pittsburgh, Pennsylvania and Fremont, California, Agility Robotics' mission is to build robot partners that augment the human workforce. Agility's groundbreaking general-purpose humanoid robot, Digit, is the first multi-purpose, human-centric robot that is Made for WorkⓇ and commercially deployed today. With more than 65,000 hours of real-world operation combined with industry-leading safety standards, we're pioneering a new era of automation that [...] In addition to the United States and Canada, for the first time, Agility plans to make Digit available for commercial deployment outside North America, starting with the European Union and United Kingdom. Digit 5 is expected to carry a CE mark and additional regulatory marks to enable market access to the EU, Great Britain and Northern Ireland. Early access to Digit 5 is expected to begin in the first half of 2027, with general availability for manufacturing, warehouse and distribution [...] Safety has been one of the biggest obstacles to scaling humanoid robots in commercial settings. Digit 5's new safety architecture is designed to reduce dependence on the protective barriers typically used in traditional robotic automation, allowing it to work in close proximity to people. Building on the milestone of becoming the first humanoid to pass an independent field evaluation on a customer production line for industrial safety standards administered by the U.S. Occupational Safety and",
+        "published_at": null
+      }
+    ]
+  },
+  "status": "success",
+  "finished_at": "2026-09-30T04:26:02.306192+00:00"
+}

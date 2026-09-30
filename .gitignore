@@ -224,6 +224,8 @@ __marimo__/
 
 # Environment scaffolding
 pyproject.toml
+
+# Local vector store (rebuild with: PYTHONPATH=src python -m ai_investment.ingest market)
 data/chroma/
 
 # Generated investment reports and PDF preview images
