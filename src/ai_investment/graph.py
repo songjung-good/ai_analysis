@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .contracts import Node, guard_node
-from .control import route_after_decision, route_after_discovery, select_next_candidate
+from .control import route_after_decision, select_next_candidate
 from .state import GraphState
 
 
@@ -55,11 +55,7 @@ def build_graph(nodes: AgentNodes):
     )
 
     builder.add_edge(START, "startup_discovery")
-    builder.add_conditional_edges(
-        "startup_discovery",
-        route_after_discovery,
-        {"customer_profile": "customer_profile", "report_generation": "report_generation"},
-    )
+    builder.add_edge("startup_discovery", "customer_profile")
     builder.add_edge("customer_profile", "technical_analysis")
     builder.add_edge("customer_profile", "business_analysis")
     builder.add_edge("customer_profile", "market_analysis")
