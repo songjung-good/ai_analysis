@@ -26,6 +26,20 @@
 4. 예외를 빈 결과로 숨기지 않습니다. 재시도와 fallback은 해당 Agent 내부에서 끝냅니다.
 5. 공용 State 변경이 필요하면 `state.py`, `contracts.py`, 설계서를 함께 수정합니다.
 
+## Tool 권한
+
+각 Agent 파일의 `TOOLS`에는 허용된 외부 Tool만 들어갑니다.
+
+| Agent | 외부 Tool |
+|---|---|
+| 스타트업 탐색 | `web_search` |
+| 분야·고객 분류 | 없음 |
+| 기술·제품 검증 | `search_tech_docs`, `web_search` |
+| 현장 도입·사업성 | `web_search` |
+| 시장성·경쟁 | `search_market_docs`, `web_search` |
+| 투자 판단 | 외부 Tool 없음, `calculate_score` 직접 호출 |
+| 보고서 생성 | 외부 Tool 없음 |
+
 ## Graph 제어
 
 - 분야·고객 분류 후 기술, 사업성, 시장 Agent가 병렬 실행됩니다.

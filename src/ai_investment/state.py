@@ -18,7 +18,7 @@ class Startup(TypedDict, total=False):
 
 class Evaluation(TypedDict):
     startup_name: str
-    score: float
+    score: float | None
     decision: Decision
     reason: str
 
@@ -35,7 +35,7 @@ class GraphState(TypedDict, total=False):
     business_analysis: dict[str, object]
     market_analysis: dict[str, object]
     scores: dict[str, float]
-    investment_score: float
+    investment_score: float | None
     decision: Decision
     decision_reason: str
     evaluations: Annotated[list[Evaluation], operator.add]
