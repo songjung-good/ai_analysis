@@ -79,7 +79,11 @@ def mmr_search(store, query: str, k: int) -> list:
 
 
 def hybrid_search(store, query: str, k: int, weights: tuple[float, float] = (0.4, 0.6)) -> list:
-    """BM25 + Dense MMR ensemble over every document in the store."""
+    """BM25 + dense similarity ensemble over every document in the store.
+
+    Dense uses similarity, not MMR: MMR diversity pushed answer chunks out of the
+    top 5 (market_docs Recall@5 0.633 -> 0.833, docs/MARKET_RETRIEVAL_EVAL.md).
+    """
     from langchain_classic.retrievers import EnsembleRetriever
     from langchain_community.retrievers import BM25Retriever
     from langchain_core.documents import Document
@@ -94,10 +98,7 @@ def hybrid_search(store, query: str, k: int, weights: tuple[float, float] = (0.4
 
     bm25 = BM25Retriever.from_documents(documents)
     bm25.k = k
-    dense = store.as_retriever(
-        search_type="mmr",
-        search_kwargs={"k": k, "fetch_k": 20, "lambda_mult": 0.5},
-    )
+    dense = store.as_retriever(search_type="similarity", search_kwargs={"k": k})
     retriever = EnsembleRetriever(retrievers=[bm25, dense], weights=list(weights))
     return retriever.invoke(query)[:k]
 
