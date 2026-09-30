@@ -225,3 +225,7 @@ __marimo__/
 # Environment scaffolding
 pyproject.toml
 data/chroma/
+
+# Generated investment reports and PDF preview images
+output/pdf/*.pdf
+tmp/pdfs/
