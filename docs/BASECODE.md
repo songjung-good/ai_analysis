@@ -46,9 +46,11 @@
 
 `info_sufficiency`의 가능한 값은 아직 enum으로 제한하지 않는다. 상위 Agent의 `충분` 선언과 무관하게 실제 필드 누락을 검사한다. 입력 부족은 향후 `business_analysis.information_gaps`에 기록하며 분석 결과의 정보 부족과 구분해 `입력 누락: 필드명` 형태로 표시한다.
 
-제품명 또는 고객 정보가 부족하면 첫 검색은 기업명 중심으로 구성하고, 확보한 근거에 따라 추가 질의를 구체화한다. 병렬 기술·시장 Agent의 결과를 기다리지 않는다.
+제품명 또는 고객 정보가 부족하면 검색은 기업명 중심으로 구성한다. 현재 검색은 고정된 세 주제이며 추가 질의 재작성은 구현하지 않는다. 병렬 기술·시장 Agent의 결과를 기다리지 않는다.
 
-입력 예시는 `tests/fixtures/business_input_complete.json`, `tests/fixtures/business_input_name_only.json`에 있다. 가상 기업 데이터이며 검색 근거나 분석 완료 결과를 의미하지 않는다. 입력 검증 코드는 4번 Agent 분석 로직 구현 단계에서 이 계약을 적용한다.
+입력 예시는 `tests/fixtures/business_input_complete.json`, `tests/fixtures/business_input_name_only.json`에 있다. 가상 기업 데이터이며 검색 근거나 분석 완료 결과를 의미하지 않는다. 입력 검증은 `agents/business_search.py`의 `build_search_plan`에 구현했다.
+
+`build_search_plan`은 State 변경 없이 질의 3개와 입력 부족 목록을 반환한다. `collect_evidence`는 `web_search`를 최대 3회, 회당 최대 5개 결과로 호출한다. 동일 출처 ID는 추가 발췌문을 보존해 병합하고 검색 예외는 전파한다. 두 함수는 6단계에서 `business.py`에 연결하며 최종 `references` 선별은 분석 이후 수행한다.
 
 ## 4번 Agent 출력 계약
 
