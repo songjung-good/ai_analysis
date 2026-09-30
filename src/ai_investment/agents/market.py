@@ -107,7 +107,7 @@ def build_questions(startup: Mapping[str, Any], profile: Mapping[str, Any]) -> d
     return {
         "market": f"{subdomain} 시장 규모 설치 대수 성장률 전망",
         "demand": f"{customer} {problem} 수요 요인 인력 부족 비용 도입",
-        "competition": f"{segment} 국내 스타트업 경쟁사 {problem} 투자 유치",
+        "competition": f"{segment} 스타트업 경쟁사 {problem}",
     }
 
 
@@ -309,6 +309,10 @@ def _prompt(
 {sections}"""
 
 
+# gpt-5-nano on PLAIF: default(medium) 168s, low ~50s with equal quality, minimal empty output.
+DEFAULT_REASONING_EFFORT = "low"
+
+
 @lru_cache(maxsize=1)
 def _default_llm():
     from langchain_openai import ChatOpenAI
@@ -316,7 +320,9 @@ def _default_llm():
     model = os.getenv("OPENAI_MODEL")
     if not model:
         raise RuntimeError("OPENAI_MODEL is not set")
-    return ChatOpenAI(model=model)
+    # Non-reasoning models reject reasoning_effort; set OPENAI_REASONING_EFFORT= to omit it.
+    effort = os.getenv("OPENAI_REASONING_EFFORT", DEFAULT_REASONING_EFFORT)
+    return ChatOpenAI(model=model, **({"reasoning_effort": effort} if effort else {}))
 
 
 def analyze(state: GraphState, *, llm, search=None, web=None) -> NodeResult:
