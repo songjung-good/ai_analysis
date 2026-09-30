@@ -66,19 +66,24 @@ def _cached_store(collection_name: str):
 
 def search_tech_docs(query: str, k: int = 5) -> list[Evidence]:
     _validate_search(query, k)
-    documents = _store(TECH_COLLECTION).max_marginal_relevance_search(
-        query, k=k, fetch_k=20, lambda_mult=0.5
-    )
-    return documents_to_evidence(documents)
+    return documents_to_evidence(mmr_search(_store(TECH_COLLECTION), query, k))
 
 
 def search_market_docs(query: str, k: int = 5) -> list[Evidence]:
     _validate_search(query, k)
+    return documents_to_evidence(hybrid_search(_store(MARKET_COLLECTION), query, k))
+
+
+def mmr_search(store, query: str, k: int) -> list:
+    return store.max_marginal_relevance_search(query, k=k, fetch_k=20, lambda_mult=0.5)
+
+
+def hybrid_search(store, query: str, k: int, weights: tuple[float, float] = (0.4, 0.6)) -> list:
+    """BM25 + Dense MMR ensemble over every document in the store."""
     from langchain_classic.retrievers import EnsembleRetriever
     from langchain_community.retrievers import BM25Retriever
     from langchain_core.documents import Document
 
-    store = _store(MARKET_COLLECTION)
     raw = store.get(include=["documents", "metadatas"])
     documents = [
         Document(page_content=text, metadata=metadata or {})
@@ -93,8 +98,8 @@ def search_market_docs(query: str, k: int = 5) -> list[Evidence]:
         search_type="mmr",
         search_kwargs={"k": k, "fetch_k": 20, "lambda_mult": 0.5},
     )
-    retriever = EnsembleRetriever(retrievers=[bm25, dense], weights=[0.4, 0.6])
-    return documents_to_evidence(retriever.invoke(query)[:k])
+    retriever = EnsembleRetriever(retrievers=[bm25, dense], weights=list(weights))
+    return retriever.invoke(query)[:k]
 
 
 def _validate_search(query: str, k: int) -> None:
