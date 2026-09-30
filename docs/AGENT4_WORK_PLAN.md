@@ -251,6 +251,8 @@ PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
 
 ### 작업 기록 추가 양식
 
+프롬프트 개선 기록(2026-09-30): `business_analysis.py`에 시점·제품 세대 구분, 단계 반대 근거 비교, 수치 추출·제외 이유, 독립 출처 검증, 한국어 출력 및 자체 점검 규칙을 반영했다. State·출력 모델은 변경하지 않았다. 전체 테스트 43개 통과. 실제 API 재실행은 수행하지 않았으며 분석 품질 개선은 미확인 상태다.
+
 ```text
 날짜:
 단계 / 상태:

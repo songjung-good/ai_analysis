@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+
 from ai_investment.agents.business import run
 from ai_investment.tools.web import web_search
 
