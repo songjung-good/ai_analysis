@@ -48,6 +48,11 @@ def parse_args():
         default=3,
         help="Max evaluation iterations before final report (default: 3)",
     )
+    parser.add_argument(
+        "--company",
+        default=None,
+        help="Direct target startup name to analyze (e.g. 플라잎, 베어로보틱스, Agility Robotics)",
+    )
     return parser.parse_args()
 
 
@@ -55,9 +60,32 @@ def main():
     load_dotenv()
     args = parse_args()
 
+    # ponytail: allow direct target company for deterministic evaluation
+    if args.company:
+        company_name = args.company.strip()
+
+        def targeted_discovery(state):
+            print(f"🎯 지정된 기업 '{company_name}' 분석 파이프라인 진입")
+            startup = {
+                "name": company_name,
+                "product": f"{company_name} 로봇 AI 솔루션",
+                "funding_stage": "Series A",
+                "team": [],
+            }
+            return {
+                "candidates": [startup],
+                "current_idx": 0,
+                "selected_startup": startup,
+                "references": [],
+            }
+
+        discovery_node = targeted_discovery
+    else:
+        discovery_node = startup_discovery
+
     # ponytail: default nodes assembly from canonical agent implementations
     nodes = AgentNodes(
-        startup_discovery=startup_discovery,
+        startup_discovery=discovery_node,
         customer_profile=customer_profile,
         technical_analysis=technical_analysis,
         business_analysis=business_analysis,

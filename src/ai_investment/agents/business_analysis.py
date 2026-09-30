@@ -106,6 +106,36 @@ def cited_source_ids(result: BusinessAnalysis) -> set[str]:
     return cited
 
 
+def _normalize_citations(data: Any, available: set[str]) -> Any:
+    # ponytail: resolve LLM prefix truncation or whitespace on hex source_ids
+    if not available:
+        return data
+
+    def resolve(sid: str) -> str:
+        s = sid.strip()
+        if s in available:
+            return s
+        for avail in available:
+            if avail.startswith(s) or s.startswith(avail) or s in avail:
+                return avail
+        return s
+
+    def walk(obj: Any) -> Any:
+        if isinstance(obj, dict):
+            return {k: walk(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            res = []
+            for item in obj:
+                if isinstance(item, str):
+                    res.append(resolve(item))
+                else:
+                    res.append(walk(item))
+            return res
+        return obj
+
+    return walk(data)
+
+
 def validate_citations(result: BusinessAnalysis, evidence: list[Evidence]) -> None:
     available = {item.source_id for item in evidence}
     cited = cited_source_ids(result)
@@ -136,7 +166,10 @@ def analyze_business(
         ("system", SYSTEM_PROMPT),
         ("human", json.dumps(payload, ensure_ascii=False)),
     ])
-    result = BusinessAnalysis.model_validate(output)
+    available = {item.source_id for item in evidence}
+    raw = output.model_dump() if hasattr(output, "model_dump") else output
+    normalized = _normalize_citations(raw, available)
+    result = BusinessAnalysis.model_validate(normalized)
     validate_citations(result, evidence)
     return result.model_copy(update={
         "information_gaps": list(dict.fromkeys((*information_gaps, *result.information_gaps)))
