@@ -143,6 +143,7 @@ class MarketAgentTests(unittest.TestCase):
         self.assertEqual(analysis["evidence_level"], "high")
         self.assertEqual(analysis["subdomain"], "제조 협동로봇")
         self.assertEqual({e.source_id for e in result["references"]}, {"a", "b"})
+        self.assertEqual(market.MarketAnalysisOutput.model_validate(analysis).model_dump(), analysis)
 
     def test_curate_drops_unverified_and_self_competitors(self):
         base = self._analysis()

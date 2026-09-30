@@ -66,6 +66,32 @@ class MarketAnalysis(BaseModel):
     missing_info: list[str] = Field(description="근거를 찾지 못해 판단할 수 없는 항목")
 
 
+class TopicRetrieval(BaseModel):
+    queries: list[str] = Field(description="실행한 검색 질의. 웹 검색은 'web:' 접두어")
+    used_web: bool
+    evidence_count: int
+
+
+class Validation(BaseModel):
+    dropped_uncited_items: int = Field(description="존재하지 않는 source_id만 인용해 제거한 항목 수")
+    unverified_competitors: list[str] = Field(description="어떤 근거에도 이름이 없어 제거한 경쟁사")
+    recited_competitors: list[str] = Field(description="인용을 이름이 실린 근거로 교정한 경쟁사")
+    industry_mismatched_competitors: list[str] = Field(description="스타트업맵 산업 분류가 달라 제거한 경쟁사")
+    unverified_figures: list[str] = Field(description="인용 근거에 값이 없어 제거한 수치")
+    excluded_self_as_competitor: bool
+
+
+class MarketAnalysisOutput(MarketAnalysis):
+    """state["market_analysis"]의 계약. 투자 판단·보고서 Agent는 이 모델로 읽는다."""
+
+    subdomain: str
+    evidence_level: Literal["high", "medium", "low"] = Field(
+        description="시장·수요·경쟁 3개 주제 중 근거가 충분한 주제 수: 3=high, 2=medium, 이하=low"
+    )
+    validation: Validation
+    retrieval: dict[Topic, TopicRetrieval]
+
+
 def build_questions(startup: Mapping[str, Any], profile: Mapping[str, Any]) -> dict[Topic, str]:
     """질의 생성: profile의 세부 분야·고객·문제로 주제별 검색 질문을 만든다.
 
@@ -317,22 +343,23 @@ def analyze(state: GraphState, *, llm, search=None, web=None) -> NodeResult:
         analysis, evidence, str(startup["name"]), profile.get("industry")
     )
 
-    cited = _cited_ids(analysis)
-    return {
-        "market_analysis": {
-            **analysis.model_dump(),
-            "subdomain": profile["subdomain"],
-            "evidence_level": _evidence_level(results),
-            "validation": {"dropped_uncited_items": dropped, **checks},
-            "retrieval": {
-                topic: {
-                    "queries": result.queries,
-                    "used_web": result.used_web,
-                    "evidence_count": len(result.evidence),
-                }
-                for topic, result in results.items()
-            },
+    output = MarketAnalysisOutput(
+        **analysis.model_dump(),
+        subdomain=str(profile["subdomain"]),
+        evidence_level=_evidence_level(results),
+        validation=Validation(dropped_uncited_items=dropped, **checks),
+        retrieval={
+            topic: TopicRetrieval(
+                queries=result.queries,
+                used_web=result.used_web,
+                evidence_count=len(result.evidence),
+            )
+            for topic, result in results.items()
         },
+    )
+    cited = _cited_ids(output)
+    return {
+        "market_analysis": output.model_dump(),
         "references": [item for sid, item in evidence.items() if sid in cited],
     }
 
