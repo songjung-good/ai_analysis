@@ -104,4 +104,5 @@ PYTHONPATH=src python -m unittest discover -s tests -v
 - 박주윤 : 기술·제품 검증 Agent (기술 문서 적재, CRAG, 환각 방지 장치)
 - 배영환 : 현장 도입·사업성 Agent, 투자 판단 Agent (근거 기반 분석, 가중치 점수 산출·판단)
 - 배은빈 : 분야·고객 분류 Agent (세부 분야·지불 고객·고객 문제 정의, 정보 부족 처리, 단위 테스트)
-- 윤도균 : 스타트업 탐색 Agent, 보고서 생성
+- 윤도균 : 스타트업 탐색 Agent, 보고서 생성 Agent (후보 검증, 5페이지 PDF 생성)
+- 이경민 : 시장성·경쟁 Agent (시장 문서 적재, CRAG, 경쟁사 선정 고정, 검색 품질 평가·개선)
