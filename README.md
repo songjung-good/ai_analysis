@@ -64,24 +64,74 @@ LangGraph 기반 Multi-Agent와 Agentic RAG를 활용해 AI 스타트업의 기�
 ├── docs/                  # Agent별 설계·작업 문서
 ├── tests/                 # 단위 테스트
 ├── output/pdf/            # 생성된 보고서
-├── app.py                 # 실행 스크립트
 └── README.md
 ```
 
 ## Usage
 
+### 1. 실행 환경 준비
+
+저장소 루트에서 Python 3.11과 uv로 설치합니다. 기존 `.venv`가 있으면 생성은 생략합니다.
+
 ```bash
-pip install -r requirements.txt
-cp .env.example .env        # OPENAI_API_KEY, OPENAI_MODEL, TAVILY_API_KEY 입력
+uv venv --python 3.11
+uv pip install --python .venv/bin/python -r requirements.txt
+```
 
-# 문서 적재 (처음 한 번)
-PYTHONPATH=src python scripts/ingest_tech_docs.py
+`.env`가 없으면 `.env.example`을 복사하여 `OPENAI_API_KEY`, `OPENAI_MODEL`, `TAVILY_API_KEY`를 설정합니다. 이미 구성한 `.env`는 덮어쓰지 않습니다. 기본 DB 설정은 `CHROMA_PERSIST_DIRECTORY=data/chroma`입니다. 상대 경로는 저장소 루트를 기준으로 해석합니다.
 
-# 실행
-python app.py
+### 2. 원본 PDF 준비
 
-# 테스트
-PYTHONPATH=src python -m unittest discover -s tests -v
+기술 자료는 `data/tech_docs/manifest.json`의 `file` 이름과 일치하도록 `data/tech_docs/`에 준비합니다. 사용할 페이지 범위도 이 manifest에서 지정합니다.
+
+시장 자료는 다음 디렉터리를 만든 뒤 `data/market/sources.json`과 동일한 파일명으로 원본 PDF 3개를 넣습니다.
+
+```bash
+mkdir -p data/market/raw
+```
+
+```text
+data/market/raw/
+├── startupalliance_2026_physical_ai_startup_map.pdf
+├── spri_is202_physical_ai_status.pdf
+└── ifr_world_robotics_2025_press.pdf
+```
+
+원본은 각각 스타트업얼라이언스의 「2026 피지컬 AI 스타트업맵」, 소프트웨어정책연구소의 「피지컬 AI의 현황과 시사점(IS-202)」, IFR의 「World Robotics 2025 Press Conference」입니다. `data/market/transcripts/`는 텍스트 추출을 보완하는 자료이며 원본 PDF를 대체하지 않습니다. PDF가 누락되면 필요한 파일명과 준비 경로를 오류로 안내합니다.
+
+### 3. Chroma 구축 — 최초 1회 또는 문서 변경 시
+
+먼저 입력 자료를 확인합니다. `--dry-run`은 임베딩·DB 적재를 수행하지 않습니다.
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/ingest_tech_docs.py --dry-run
+PYTHONPATH=src .venv/bin/python -m ai_investment.ingest market --dry-run
+```
+
+확인이 끝나면 기술·시장 컬렉션을 각각 구축합니다.
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/ingest_tech_docs.py
+PYTHONPATH=src .venv/bin/python -m ai_investment.ingest market
+```
+
+Chroma는 로컬 영속 DB이므로 별도 서버를 실행할 필요가 없습니다. KURE-v1 모델 최초 다운로드에는 네트워크와 시간이 필요합니다.
+
+주의: 적재 명령을 다시 실행하면 해당 컬렉션의 기존 데이터가 초기화됩니다. 검색 실행 시 자동 구축·재구축하지 않습니다. DB 또는 필요한 컬렉션이 없거나 비어 있으면 구축 명령을 안내하고 중단합니다. 원본 자료를 준비하지 않은 상태에서 빈 DB를 정상적인 분석 결과로 처리하지 않습니다.
+
+### 4. 실행 및 테스트
+
+현재 전체 분석용 `app.py`는 없습니다. 전체 실행은 `AgentNodes`로 각 에이전트를 연결하여 `build_graph`를 호출해야 합니다. 단독 실행 예제는 다음과 같습니다. 실제 실행은 검색·LLM API 비용이 발생합니다.
+
+```bash
+# 1번: 스타트업 탐색
+PYTHONPATH=src .venv/bin/python -m ai_investment.discover --region 대한민국 --limit 3
+
+# 4번: 현장 도입·사업성 예제
+.venv/bin/python examples/run_business_agent.py
+
+# 기본 테스트: 실제 API 테스트는 생략
+PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
 ```
 
 ## Results
@@ -90,7 +140,7 @@ PYTHONPATH=src python -m unittest discover -s tests -v
 - 시장 문서 검색 개선(Dense를 MMR에서 similarity로 변경, 소제목 경계 청킹): Recall@5 0.633 → 0.867, 도메인 질문 5개 모두 상위 5개 안에서 검색
 - 경쟁사 선정을 코드로 고정: 같은 입력 3회 실행 시 3회 동일 결과 (이전 6회 6가지)
 - 시장성·경쟁 실행 시간 168초 → 30~50초
-- 테스트: 전체 99개 통과 (실제 API를 쓰는 기술 Agent 스모크 테스트 제외)
+- 테스트: 전체 150개 중 146개 통과, 실제 API를 쓰는 기술 Agent 스모크 테스트 4개 생략 (데이터 적재·DB 사전 검사 변경 검증 기준)
 
 ## Limitations
 

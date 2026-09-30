@@ -18,7 +18,7 @@ from .tools.common import source_id
 from .tools.rag import MARKET_COLLECTION, TECH_COLLECTION
 
 
-DATA_DIR = Path("data")
+DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 MANIFEST_KEYS = ("title", "publisher", "published_at", "url")
 TRANSCRIPT_PAGE = re.compile(r"^## p\.(\d+)( replace)?\s*$", re.MULTILINE)
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -110,14 +110,19 @@ def load_manifest(spec: CollectionSpec) -> dict[str, dict[str, Any]]:
         raise FileNotFoundError(f"missing source manifest: {spec.manifest_path}")
     manifest = json.loads(spec.manifest_path.read_text(encoding="utf-8"))
     pdfs = {path.name for path in spec.raw_dir.glob("*.pdf")}
+    absent = sorted(manifest.keys() - pdfs)
+    if absent:
+        raise FileNotFoundError(
+            f"Missing source PDFs in {spec.raw_dir}: {', '.join(absent)}. "
+            "Create this directory and place the original PDFs there using these exact filenames. "
+            "transcripts/ supplements PDF text and cannot replace the original PDFs. "
+            "See README.md for RAG setup."
+        )
     if not pdfs:
-        raise FileNotFoundError(f"no PDF files in {spec.raw_dir}")
+        raise FileNotFoundError(f"no PDF files in {spec.raw_dir}; see README.md for RAG setup")
     missing = sorted(pdfs - manifest.keys())
     if missing:
         raise ValueError(f"PDFs missing from {spec.manifest_path}: {', '.join(missing)}")
-    stale = sorted(manifest.keys() - pdfs)
-    if stale:
-        raise ValueError(f"manifest entries without PDF: {', '.join(stale)}")
     for name, entry in manifest.items():
         if not entry.get("title"):
             raise ValueError(f"manifest entry needs a title: {name}")
@@ -186,6 +191,8 @@ def ingest(spec: CollectionSpec, *, dry_run: bool = False) -> list[Any]:
     chunks = split_documents(spec, load_documents(spec))
     if dry_run:
         return chunks
+    if not chunks:
+        raise ValueError("No usable document chunks; refusing to reset the RAG collection")
 
     from .tools.rag import _store
 

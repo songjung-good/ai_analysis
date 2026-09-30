@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
@@ -13,6 +14,7 @@ from ai_investment.ingest import (
     TranscriptPage,
     has_text_layer,
     load_manifest,
+    ingest,
     merge_page_text,
     parse_transcript,
 )
@@ -102,6 +104,24 @@ class ManifestTests(unittest.TestCase):
             spec = self._spec(Path(tmp), {"a.pdf": {"title": ""}})
             with self.assertRaisesRegex(ValueError, "title"):
                 load_manifest(spec)
+
+    def test_missing_raw_directory_lists_required_pdf_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "sources.json").write_text(
+                json.dumps({"required.pdf": {"title": "Required source"}}), encoding="utf-8"
+            )
+            spec = CollectionSpec("market_docs", root, 1000, 150)
+            with self.assertRaisesRegex(FileNotFoundError, "required.pdf.*original PDFs"):
+                load_manifest(spec)
+
+    def test_empty_chunks_do_not_reset_collection(self):
+        with patch("ai_investment.ingest.load_documents", return_value=[]), patch(
+            "ai_investment.ingest.split_documents", return_value=[]
+        ), patch("ai_investment.tools.rag._store") as store:
+            with self.assertRaisesRegex(ValueError, "refusing to reset"):
+                ingest(COLLECTIONS["market"])
+            store.assert_not_called()
 
     def test_chunk_settings_follow_design_document(self):
         market, tech = COLLECTIONS["market"], COLLECTIONS["tech"]
