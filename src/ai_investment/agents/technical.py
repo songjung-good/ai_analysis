@@ -39,6 +39,7 @@ MIN_RELEVANT_DOCS = 2    # 관련 자료가 이 개수 미만이면 "부족"
 MAX_REWRITE = 1          # 쿼리 재작성 최대 횟수. 초과 시 web_search 폴백
 WEB_MAX_RESULTS = 5
 EXCERPT_CHARS = 900      # 프롬프트에 넣는 근거 길이 제한
+TECH_SOURCE_PREFIX = "tech:"  # ingest_tech_docs.py가 붙이는 논문·보고서 source_id 접두어
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +61,9 @@ class RelevanceGrade(BaseModel):
     sufficient: bool = Field(
         description="핵심 기술, 성능 근거, 기술적 한계를 판단하기에 자료가 충분한지"
     )
+    company_specific: bool = Field(
+        description="자료 중 이 기업의 제품·기술·성능을 직접 다룬 것이 하나라도 있는지"
+    )
     missing: list[str] = Field(description="부족한 근거 항목. 충분하면 빈 목록")
 
 
@@ -80,7 +84,10 @@ class TechnicalAnalysisOutput(BaseModel):
     summary: str = Field(description="기술 검증 결과 3문장 이내 요약")
     core_technologies: list[TechClaim]
     differentiation: list[Claim]
-    performance_evidence: list[Claim]
+    performance_evidence: list[Claim] = Field(description="이 기업 제품의 성능 근거만")
+    benchmark_context: list[Claim] = Field(
+        description="논문·보고서가 보여 주는 업계 기술 수준(다른 모델의 성능). 기업 성능으로 쓰지 않는다"
+    )
     limitations: list[Claim]
     evidence_level: Literal["high", "medium", "low"]
     missing_items: list[str]
@@ -103,7 +110,9 @@ QUERY_PROMPT = """당신은 Physical AI·Robotics 분야 기술 심사역이다.
 규칙:
 - 기업명이 아니라 기업 기술과 관련된 기술 개념으로 질의한다.
 - AI의 인식·판단·행동 관점과 성능 근거, 기술적 한계를 골고루 포함한다.
-- 한국어로 작성하되 VLA, foundation model 같은 핵심 영문 용어는 그대로 쓴다."""
+- 한국어로 작성하되 VLA, foundation model 같은 핵심 영문 용어는 그대로 쓴다.
+- 질의 하나에는 개념 하나만 담고, 20단어 이내의 자연어 문장으로 쓴다.
+- AND, OR 같은 불리언 연산자나 키워드 나열은 쓰지 않는다 (의미 검색용 질의다)."""
 
 GRADE_PROMPT = """아래 스타트업의 기술을 검증하려 한다.
 검증 목적: 핵심 기술의 수준, 성능 근거, 기술적 한계 판단
@@ -117,11 +126,15 @@ GRADE_PROMPT = """아래 스타트업의 기술을 검증하려 한다.
 각 자료가 검증 목적에 실질적 근거가 되는지 판정하라.
 - 관련 자료 ID만 relevant_ids에 넣는다.
 - 핵심 기술, 성능 근거, 기술적 한계를 모두 판단할 수 있으면 sufficient=true.
+- 이 기업의 제품·기술·성능을 직접 다룬 자료가 있으면 company_specific=true.
+  다른 기업·모델의 논문이나 업계 일반 보고서만 있으면 false.
 - 부족한 항목은 missing에 적는다."""
 
 REWRITE_PROMPT = """다음 검색 질의로는 기술 검증 근거를 충분히 찾지 못했다.
 의도는 유지하되 동의어와 영문 기술 용어(VLA, robot foundation model,
 sim-to-real, generalization 등)를 섞어 질의 {n}개를 다시 작성하라.
+질의 하나에는 개념 하나만 담고, 20단어 이내의 자연어 문장으로 쓴다.
+AND, OR 같은 불리언 연산자는 쓰지 않는다.
 
 [기존 질의]
 {queries}
@@ -146,9 +159,14 @@ ANALYZE_PROMPT = """당신은 Physical AI·Robotics 분야 기술 심사역이�
 - 기업의 주장(company_claim)과 제3자 자료(third_party), 논문(paper)을 구분한다.
 - company_claim이 아닌 모든 주장에는 source_ids를 반드시 단다.
 - 근거 자료에 없는 내용은 추측하지 말고 missing_items에 적는다.
+- performance_evidence에는 이 기업 제품의 성능만 쓴다.
+  논문 속 다른 모델(LingBot-VLA, τ0-VLA, π0 등)의 성능은 benchmark_context에 쓴다.
 - limitations는 최소 1개 쓴다. 논문이 밝힌 기술 일반의 한계를 기업 기술에 비추어 서술해도 된다.
-- evidence_level: 제3자·논문 근거로 성능이 확인되면 high, 일부만 확인되면 medium,
-  기업 주장뿐이면 low."""
+- summary 문장 안에 S1 같은 자료 ID를 쓰지 않는다.
+- evidence_level은 이 기업 기술의 검증 수준이다.
+  high: 제3자 자료(기사·고객 사례·인증)로 이 기업 제품의 성능이 확인됨
+  medium: 기업 공개 자료로 기술 구성은 확인되나 제3자 성능 근거는 부족함
+  low: 기업 구체 근거 없이 업계 일반 문헌으로만 판단함"""
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +191,7 @@ def _structured(schema: type[T], prompt: str) -> T:
 
 
 def _tool(name: str):
-    """registry가 이 Agent에 허용한 Tool만 꺼낸다."""
+    """registry가 이 Agent에 허용한 Tool(TOOLS)만 꺼낸다."""
     tools = {tool.__name__: tool for tool in TOOLS}
     if name not in tools:
         raise PermissionError(f"{AGENT} is not allowed to use {name}")
@@ -206,18 +224,24 @@ def retrieve(queries: Sequence[str]) -> list[Evidence]:
     return _dedupe(item for q in queries for item in search(q, k=TECH_DOCS_K))
 
 
-def grade_relevance(
-    startup: Mapping[str, Any], evidence: Sequence[Evidence]
-) -> tuple[list[Evidence], bool, list[str]]:
+@dataclass
+class Grade:
+    relevant: list[Evidence]
+    sufficient: bool
+    company_specific: bool
+    missing: list[str]
+
+
+def grade_relevance(startup: Mapping[str, Any], evidence: Sequence[Evidence]) -> Grade:
     if not evidence:
-        return [], False, ["검색 결과 없음"]
+        return Grade([], False, False, ["검색 결과 없음"])
     labels = _label(evidence)
     grade = _structured(
         RelevanceGrade,
         GRADE_PROMPT.format(startup=_dump(startup), context=_context(labels)),
     )
     relevant = [labels[i] for i in dict.fromkeys(grade.relevant_ids) if i in labels]
-    return relevant, grade.sufficient, list(grade.missing)
+    return Grade(relevant, grade.sufficient, grade.company_specific, list(grade.missing))
 
 
 def rewrite_query(queries: Sequence[str], missing: Sequence[str]) -> list[str]:
@@ -246,9 +270,17 @@ def web_fallback(startup: Mapping[str, Any]) -> list[Evidence]:
 
 
 def run_crag(startup: Mapping[str, Any], profile: Mapping[str, Any]) -> CragResult:
+    """문헌 근거는 벡터DB에서, 기업 고유 근거가 없으면 웹에서 보완한다.
+
+    - 관련 문헌이 부족하면 쿼리를 재작성해 벡터DB를 다시 검색한다 (최대 MAX_REWRITE회).
+    - 재작성 후에도 부족하거나, 기업 제품을 직접 다룬 자료가 없으면 web_search로 폴백한다.
+      (tech_docs는 업계 일반 논문·보고서라 기업 고유 근거는 대부분 웹에서 온다)
+    """
     queries = generate_queries(startup, profile)
     result = CragResult(evidence=[])
     relevant: dict[str, Evidence] = {}
+    docs_ok = False
+    company_found = False
 
     for attempt in range(MAX_REWRITE + 1):
         found = retrieve(queries)
@@ -258,21 +290,23 @@ def run_crag(startup: Mapping[str, Any], profile: Mapping[str, Any]) -> CragResu
                 "tech_docs collection이 비어 있습니다. "
                 "먼저 python scripts/ingest_tech_docs.py 를 실행하세요."
             )
-        docs, sufficient, missing = grade_relevance(startup, found)
-        relevant.update((doc.source_id, doc) for doc in docs)
-        result.missing = missing
-        if sufficient and len(relevant) >= MIN_RELEVANT_DOCS:
-            result.evidence = list(relevant.values())
-            return result
+        grade = grade_relevance(startup, found)
+        relevant.update((doc.source_id, doc) for doc in grade.relevant)
+        company_found = company_found or grade.company_specific
+        result.missing = grade.missing
+        if grade.sufficient and len(relevant) >= MIN_RELEVANT_DOCS:
+            docs_ok = True
+            break
         if attempt < MAX_REWRITE:
-            queries = rewrite_query(queries, missing)
+            queries = rewrite_query(queries, grade.missing)
             result.rewrite_count += 1
 
-    # 부족 & 재작성 초과 -> 웹 검색 폴백
-    result.used_web_fallback = True
-    web_docs, _, missing = grade_relevance(startup, web_fallback(startup))
-    relevant.update((doc.source_id, doc) for doc in web_docs)
-    result.missing = missing
+    if not (docs_ok and company_found):
+        result.used_web_fallback = True
+        web = grade_relevance(startup, web_fallback(startup))
+        relevant.update((doc.source_id, doc) for doc in web.relevant)
+        result.missing = web.missing
+
     result.evidence = list(relevant.values())
     return result
 
@@ -292,6 +326,7 @@ def analyze(
                 "core_technologies": [],
                 "differentiation": [],
                 "performance_evidence": [],
+                "benchmark_context": [],
                 "limitations": [],
                 "evidence_level": "insufficient",
                 "missing_items": list(missing) or ["핵심 기술", "성능 근거", "기술적 한계"],
@@ -327,10 +362,14 @@ def analyze(
         "core_technologies": resolve(output.core_technologies),
         "differentiation": resolve(output.differentiation),
         "performance_evidence": resolve(output.performance_evidence),
+        "benchmark_context": resolve(output.benchmark_context),
         "limitations": resolve(output.limitations),
         "evidence_level": output.evidence_level,
         "missing_items": list(output.missing_items),
     }
+    # 업계 일반 문헌(tech_docs)만 인용했다면 기업 기술이 검증된 것이 아니므로 low로 제한한다.
+    if not any(not ev.source_id.startswith(TECH_SOURCE_PREFIX) for ev in cited.values()):
+        analysis["evidence_level"] = "low"
     return analysis, list(cited.values())
 
 
