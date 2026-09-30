@@ -16,7 +16,7 @@
 | 투자 판단 | `agents/decision.py` | `scores`, `investment_score`, `decision`, `decision_reason`, `evaluations` |
 | 보고서 생성 | `agents/report.py` | `report` |
 
-`guard_node`가 계약 밖 State 쓰기를 실행 중 차단합니다. 병렬 Agent가 함께 쓰는 `references`와 반복 평가에서 누적하는 `evaluations`만 reducer로 병합합니다.
+`guard_node`가 계약 밖 State 쓰기를 실행 중 차단합니다. 병렬 Agent가 함께 쓰는 `references`와 반복 평가에서 누적하는 `evaluations`만 reducer로 병합합니다. `references`의 각 항목은 `Evidence` 모델을 사용합니다.
 
 ## 구현 규칙
 
@@ -30,8 +30,8 @@
 
 - 분야·고객 분류 후 기술, 사업성, 시장 Agent가 병렬 실행됩니다.
 - 세 Agent가 모두 끝난 뒤 투자 판단을 실행합니다.
-- `투자`면 보고서를 생성합니다.
-- `보류`이며 후보와 반복 횟수가 남으면 다음 후보를 선택합니다.
+- `invest`면 보고서를 생성합니다.
+- `conditional` 또는 `hold`이며 후보와 반복 횟수가 남으면 다음 후보를 선택합니다.
 - 후보 소진 또는 `max_iterations` 도달 시 보고서를 생성합니다.
 
 ## 확인

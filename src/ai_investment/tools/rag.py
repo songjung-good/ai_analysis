@@ -1,0 +1,86 @@
+from __future__ import annotations
+
+import os
+from functools import lru_cache
+from pathlib import Path
+
+from ..models import Evidence
+from .common import documents_to_evidence
+
+
+MODEL_NAME = "nlpai-lab/KURE-v1"
+TECH_COLLECTION = "tech_docs"
+MARKET_COLLECTION = "market_docs"
+DEFAULT_CHROMA_PATH = "data/chroma"
+
+
+class KUREEmbeddings:
+    def __init__(self) -> None:
+        from sentence_transformers import SentenceTransformer
+
+        self.model = SentenceTransformer(MODEL_NAME)
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return self.model.encode(texts, normalize_embeddings=True).tolist()
+
+    def embed_query(self, text: str) -> list[float]:
+        return self.model.encode(text, normalize_embeddings=True).tolist()
+
+
+@lru_cache(maxsize=1)
+def _embeddings() -> KUREEmbeddings:
+    return KUREEmbeddings()
+
+
+@lru_cache(maxsize=2)
+def _store(collection_name: str):
+    from langchain_chroma import Chroma
+
+    persist_directory = Path(
+        os.getenv("CHROMA_PERSIST_DIRECTORY", DEFAULT_CHROMA_PATH)
+    )
+    return Chroma(
+        collection_name=collection_name,
+        embedding_function=_embeddings(),
+        persist_directory=str(persist_directory),
+    )
+
+
+def search_tech_docs(query: str, k: int = 5) -> list[Evidence]:
+    _validate_search(query, k)
+    documents = _store(TECH_COLLECTION).max_marginal_relevance_search(
+        query, k=k, fetch_k=20, lambda_mult=0.5
+    )
+    return documents_to_evidence(documents)
+
+
+def search_market_docs(query: str, k: int = 5) -> list[Evidence]:
+    _validate_search(query, k)
+    from langchain_classic.retrievers import EnsembleRetriever
+    from langchain_community.retrievers import BM25Retriever
+    from langchain_core.documents import Document
+
+    store = _store(MARKET_COLLECTION)
+    raw = store.get(include=["documents", "metadatas"])
+    documents = [
+        Document(page_content=text, metadata=metadata or {})
+        for text, metadata in zip(raw.get("documents", []), raw.get("metadatas", []))
+    ]
+    if not documents:
+        return []
+
+    bm25 = BM25Retriever.from_documents(documents)
+    bm25.k = k
+    dense = store.as_retriever(
+        search_type="mmr",
+        search_kwargs={"k": k, "fetch_k": 20, "lambda_mult": 0.5},
+    )
+    retriever = EnsembleRetriever(retrievers=[bm25, dense], weights=[0.4, 0.6])
+    return documents_to_evidence(retriever.invoke(query)[:k])
+
+
+def _validate_search(query: str, k: int) -> None:
+    if not query.strip():
+        raise ValueError("query must not be empty")
+    if not 1 <= k <= 5:
+        raise ValueError("k must be between 1 and 5")

@@ -21,10 +21,10 @@ def select_next_candidate(state: GraphState) -> dict[str, object]:
 
 def route_after_decision(state: GraphState) -> Route:
     decision = state.get("decision")
-    if decision == "투자":
+    if decision == "invest":
         return "report_generation"
-    if decision != "보류":
-        raise ValueError("decision must be '투자' or '보류'")
+    if decision not in {"conditional", "hold"}:
+        raise ValueError("decision must be 'invest', 'conditional', or 'hold'")
 
     next_idx = state["current_idx"] + 1
     has_candidate = next_idx < len(state["candidates"])

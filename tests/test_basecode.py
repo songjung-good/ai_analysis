@@ -8,7 +8,11 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 from ai_investment.contracts import guard_node
 from ai_investment.control import route_after_decision, select_next_candidate
 from ai_investment.graph import AgentNodes, build_graph
+from ai_investment.models import Evidence
+from ai_investment.scoring import WEIGHTS, calculate_score
 from ai_investment.state import create_initial_state
+from ai_investment.tools.registry import tools_for
+from ai_investment.tools.web import _to_evidence
 
 
 class InitialStateTests(unittest.TestCase):
@@ -45,19 +49,23 @@ class ControlTests(unittest.TestCase):
         }
 
     def test_investment_routes_to_report(self):
-        self.state["decision"] = "투자"
+        self.state["decision"] = "invest"
         self.assertEqual(route_after_decision(self.state), "report_generation")
 
     def test_hold_routes_to_next_candidate(self):
-        self.state["decision"] = "보류"
+        self.state["decision"] = "hold"
+        self.assertEqual(route_after_decision(self.state), "next_candidate")
+
+    def test_conditional_routes_to_next_candidate(self):
+        self.state["decision"] = "conditional"
         self.assertEqual(route_after_decision(self.state), "next_candidate")
 
     def test_iteration_limit_routes_to_report(self):
-        self.state.update(decision="보류", current_idx=1, max_iterations=2)
+        self.state.update(decision="hold", current_idx=1, max_iterations=2)
         self.assertEqual(route_after_decision(self.state), "report_generation")
 
     def test_candidate_exhaustion_routes_to_report(self):
-        self.state.update(decision="보류", current_idx=2)
+        self.state.update(decision="hold", current_idx=2)
         self.assertEqual(route_after_decision(self.state), "report_generation")
 
     def test_selects_next_candidate(self):
@@ -99,7 +107,7 @@ class GraphIntegrationTests(unittest.TestCase):
         def decision(state):
             name = state["selected_startup"]["name"]
             calls.append(("decision", name))
-            choice = "투자" if name == "B" else "보류"
+            choice = "invest" if name == "B" else "hold"
             return {
                 "scores": {},
                 "investment_score": 4.0,
@@ -144,6 +152,61 @@ class GraphIntegrationTests(unittest.TestCase):
                 "market_analysis",
             ):
                 self.assertLess(calls.index((field, startup)), decision_idx)
+
+
+class ScoringTests(unittest.TestCase):
+    def test_thresholds(self):
+        self.assertEqual(calculate_score(dict.fromkeys(WEIGHTS, 4)).decision, "invest")
+        self.assertEqual(
+            calculate_score(dict.fromkeys(WEIGHTS, 3)).decision, "conditional"
+        )
+        self.assertEqual(calculate_score(dict.fromkeys(WEIGHTS, 2)).decision, "hold")
+
+    def test_missing_score_forces_hold_without_inventing_value(self):
+        result = calculate_score({"team": 4})
+        self.assertEqual(result.decision, "hold")
+        self.assertIsNone(result.weighted_score)
+        self.assertIn("market", result.missing_fields)
+
+    def test_rejects_out_of_range_score(self):
+        with self.assertRaisesRegex(ValueError, "between 1 and 5"):
+            calculate_score(dict.fromkeys(WEIGHTS, 6))
+
+
+class ToolTests(unittest.TestCase):
+    def test_agent_receives_only_authorized_tools(self):
+        self.assertEqual(
+            [tool.__name__ for tool in tools_for("technical_analysis")],
+            ["search_tech_docs", "web_search"],
+        )
+        self.assertEqual(tools_for("customer_profile"), ())
+
+    def test_tavily_result_uses_common_evidence_model(self):
+        results = _to_evidence(
+            {
+                "results": [
+                    {
+                        "title": "Source",
+                        "url": "https://example.com",
+                        "content": "Evidence text",
+                        "published_date": "2026-01-01",
+                    }
+                ]
+            },
+            5,
+        )
+        self.assertEqual(
+            results,
+            [
+                Evidence(
+                    source_id=results[0].source_id,
+                    title="Source",
+                    url="https://example.com",
+                    excerpt="Evidence text",
+                    published_at="2026-01-01",
+                )
+            ],
+        )
 
 
 if __name__ == "__main__":

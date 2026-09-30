@@ -3,8 +3,10 @@ from __future__ import annotations
 import operator
 from typing import Annotated, Literal, TypedDict
 
+from .models import Evidence
 
-Decision = Literal["투자", "보류"]
+
+Decision = Literal["invest", "conditional", "hold"]
 
 
 class Startup(TypedDict, total=False):
@@ -12,14 +14,6 @@ class Startup(TypedDict, total=False):
     product: str
     funding_stage: str
     team: list[str]
-
-
-class Reference(TypedDict):
-    source_id: str
-    title: str
-    location: str
-    startup_name: str
-    agent: str
 
 
 class Evaluation(TypedDict):
@@ -45,7 +39,7 @@ class GraphState(TypedDict, total=False):
     decision: Decision
     decision_reason: str
     evaluations: Annotated[list[Evaluation], operator.add]
-    references: Annotated[list[Reference], operator.add]
+    references: Annotated[list[Evidence], operator.add]
     report: str
 
 
