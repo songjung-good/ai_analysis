@@ -28,7 +28,8 @@ Physical AI·Robotics 기업의 제품이 실제 고객 현장에서 사용되�
 | 2단계 입력 계약 및 예시 | 완료 | `selected_startup` 4개 필드와 `profile` 5개 필드, 누락 처리 규칙, 가상 입력 JSON 2개 확정. 실행 로직 반영은 예정 |
 | 3단계 출력 모델 | 완료 | `BusinessAnalysis`와 항목별 모델 정의, 검증 규칙·테스트 작성 |
 | 4단계 검색 전략 | 완료 | `business_search.py`에 입력 검증·질의 3개 생성·호출 한도·출처 병합 구현 |
-| 프롬프트·분석 로직 | 예정 | 5~6단계에서 검색 함수와 LLM을 연결 |
+| 5단계 프롬프트·구조화 분석 | 완료 | `business_analysis.py`에 근거 기반 프롬프트, 모델 초기화, 구조화 출력·인용 검증 구현 |
+| 6단계 Agent 통합 | 예정 | 검색 함수와 구조화 분석을 `business.py`에 연결 |
 
 출력 계약과 검색 전략을 구현했다. 실제로 검증하지 않은 항목을 완료로 표시하지 않는다.
 
@@ -107,7 +108,19 @@ uv pip install --python .venv/bin/python -r requirements.txt
 
 기업 자료, 고객 측 발표, 관련 기관 자료를 분석에서 우선하며 보도자료 재게시를 독립된 교차 검증 자료로 세지 않는다. 검색은 도메인을 제한하지 않는다. 결과의 기업 관련성·출처 품질은 이후 분석 단계에서 확인하며 검색 요약만으로 판단한 경우 원문을 확인한 것처럼 표현하지 않는다.
 
-### 5~6단계: 구현 흐름
+### 5단계: 분석 프롬프트와 구조화 출력
+
+`agents/business_analysis.py`의 `analyze_business(state, evidence, information_gaps, model=...)`이 `BusinessAnalysis`를 반환한다. 모델 주입으로 외부 호출 없이 검증할 수 있다.
+
+- `create_analysis_model`은 프로젝트 `.env`를 명시적으로 읽으며 기존 환경변수를 덮어쓰지 않는다. 필수 모델 설정이 없으면 변수명만 표시하고 실패한다.
+- `ChatOpenAI`는 `OPENAI_MODEL`을 사용한다. 요청 timeout은 60초, SDK 자동 재시도는 0회다.
+- `with_structured_output(BusinessAnalysis, method="function_calling", strict=False)`로 파싱한 뒤 Pydantic 검증을 적용한다. 로컬 패키지 API를 확인했으며 실제 모델의 지원 여부는 API 실행 단계에서 확인한다.
+- 기업·분류 정보, 누락 목록, Evidence를 JSON 데이터로 전달한다. 검색 자료 안의 지시를 따르지 않도록 system 프롬프트에 명시한다.
+- 단계와 중첩 항목의 출처 ID가 제공된 Evidence에 존재하는지 검증한다. 이 검사는 ID 존재 여부이며 출처가 실제로 주장을 뒷받침하는지는 별도 확인이 필요하다.
+- 상위 입력 누락 목록은 모델이 빠뜨려도 최종 `information_gaps`에 보존한다.
+- 호출 실패, 출력 형식 오류, 잘못된 인용은 예외로 전파한다. 실제 API 호출과 Graph 연결은 아직 수행하지 않았다.
+
+### 6단계: Agent 구현 흐름
 
 1. 입력의 기업명과 필요한 분류 정보를 검증한다.
 2. 검색 질의를 생성하고 허용된 `web_search`를 호출한다.
@@ -198,7 +211,9 @@ State를 직접 변경하지 않는다. 누적 `references` 전체를 다시 반
 | 2026-09-30 | 3단계: 출력 모델 | `BusinessAnalysis`와 고객·비용·효과·규제·근거 모델 구현, 출력 계약 문서 반영 | 완료 | 전체 테스트 21개 통과, JSON Schema 생성 확인. API 호출 없음 | 4단계: 검색 질의·호출 한도·정보 부족 시 검색 전략 확정 |
 | 2026-09-30 | 4단계: 검색 | 입력 검증, 주제별 질의 생성, 검색 3회·결과 5개 한도, 출처 병합 및 오류 처리 구현 | 완료 | 전체 테스트 27개 통과. 대체 검색 함수로 호출 횟수·출처·실패 처리 검증, 실제 API 호출 없음 | 5단계: 분석 프롬프트·structured output 연결 |
 
-3단계 산출물: `src/ai_investment/agents/business_models.py`, `tests/test_business_models.py`. 모델 검증은 출처의 사실성을 보증하지 않으며 실제 인용 검증은 6단계에서 구현한다.
+| 2026-09-30 | 5단계: 구조화 분석 | system 프롬프트, ChatOpenAI 초기화, Pydantic 출력·출처 ID 검증, 입력 부족 보존 구현 | 완료 | 전체 테스트 31개 통과. LLM 대체 응답 사용, 실제 API 호출 없음 | 6단계: `business.py`에서 입력·검색·분석·사용 출처 반환 연결 |
+
+3단계 산출물: `src/ai_investment/agents/business_models.py`, `tests/test_business_models.py`. 모델 검증은 출처의 사실성을 보증하지 않는다. 출처 ID 존재 검증은 5단계에서 구현했다.
 
 ### 작업 기록 추가 양식
 

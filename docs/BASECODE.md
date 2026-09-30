@@ -72,6 +72,12 @@
 
 유료 운영 사례는 `is_paid=True`가 필수이며 전체 단계를 `paid_operation`으로 지정하려면 해당 고객 사례가 있어야 한다. 유료 시험 운영은 `pilot`과 `is_paid=True`로 표현한다. 근거 수준은 `cross_verified`, `single_source`, `claim_only`, `unknown`, `conflicting`이다. 출처의 실제 존재 여부와 주장에 대한 충분성은 이후 분석 로직에서 확인한다. 요약과 단계 이유는 구조화된 항목 및 연결된 출처 범위 안에서 작성한다.
 
+## 4번 Agent 구조화 분석
+
+`agents/business_analysis.py`의 `analyze_business`는 입력, Evidence, 입력 부족 목록을 받아 `BusinessAnalysis`를 반환한다. ChatOpenAI의 function calling 출력에 Pydantic 검증과 출처 ID 존재 검증을 적용한다. 주입한 모델로 테스트할 수 있으며 호출·검증 오류는 전파한다.
+
+프롬프트는 검색 내용을 데이터로 취급하고 자료 안의 지시를 따르지 않도록 한다. 미확인 수치를 만들지 않으며 유료 PoC·실제 유료 운영을 구분한다. 제공된 출처 범위에서만 분석하고 입력 부족 목록을 보존한다. `business.py` 연결과 실제 사용 출처 선별은 6단계에서 수행한다.
+
 ## Tool 권한
 
 각 Agent 파일의 `TOOLS`에는 허용된 외부 Tool만 들어갑니다.
