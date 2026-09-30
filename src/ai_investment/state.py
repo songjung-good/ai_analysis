@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import operator
-from typing import Annotated, Literal, TypedDict
+from typing import Annotated, Literal, NotRequired, TypedDict
 
 from .models import Evidence
 
@@ -21,6 +21,10 @@ class Evaluation(TypedDict):
     score: float | None
     decision: Decision
     reason: str
+    score_details: NotRequired[dict[str, dict[str, object]]]
+    blocking_risks: NotRequired[list[dict[str, object]]]
+    missing_information: NotRequired[list[str]]
+    source_ids: NotRequired[list[str]]
 
 
 class GraphState(TypedDict, total=False):
