@@ -16,7 +16,7 @@
 |---|---|---|---|
 | `web_search` | Tavily | 최신 기업·고객·계약·시장 자료 검색 | 스타트업 탐색, 현장 도입·사업성, CRAG fallback |
 | `search_tech_docs` | Chroma + KURE-v1 + MMR | 기술 문서·논문 검색 | 기술·제품 검증 |
-| `search_market_docs` | BM25 + Chroma MMR | 시장 보고서·경쟁 자료 하이브리드 검색 | 시장성·경쟁 |
+| `search_market_docs` | BM25 + Chroma similarity | 시장 보고서·경쟁 자료 하이브리드 검색 | 시장성·경쟁 |
 
 ### 2.1 `web_search`
 
@@ -52,11 +52,12 @@ search_market_docs(query: str, k: int = 5)
 ```
 
 - Chroma의 `market_docs` collection을 검색한다.
-- BM25와 Dense MMR 결과를 결합한다.
+- BM25와 Dense similarity 결과를 결합한다.
+- Dense는 MMR 대신 similarity를 쓴다. MMR(`lambda_mult=0.5`)이 정답 청크를 상위 5개 밖으로 밀어내 Recall@5가 0.633에서 0.833으로 오른다(`docs/MARKET_RETRIEVAL_EVAL.md`).
 
 ```text
 BM25 weight=0.4
-Dense MMR weight=0.6
+Dense similarity weight=0.6
 k=5
 ```
 
@@ -155,7 +156,7 @@ WEIGHTS = {
 | 기술 collection | `tech_docs` |
 | 시장 collection | `market_docs` |
 | 기술 Retriever | MMR |
-| 시장 Retriever | BM25 + Dense MMR |
+| 시장 Retriever | BM25 + Dense similarity |
 | Workflow | LangGraph |
 | LLM | `ChatOpenAI`, 모델명은 `OPENAI_MODEL` 환경변수로 주입 |
 | Web Search | Tavily |
