@@ -231,3 +231,6 @@ data/chroma/
 # Generated investment reports and PDF preview images
 output/pdf/*.pdf
 tmp/pdfs/
+
+# Explicit submission bundles
+output/submission/
