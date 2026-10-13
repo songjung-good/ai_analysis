@@ -51,14 +51,15 @@ def _exhausted(state: GraphState) -> bool:
 
 
 def route_after_report(state: GraphState) -> str:
-    # 한계 보고서까지 출력했으면 종료, 아니면 평가
-    return "end" if _exhausted(state) else "evaluator"
+    # 통과/한계 보고서에 최종 평가 상태를 반영했으면 종료, 아니면 평가.
+    passed = (state.get("eval_result") or {}).get("passed") is True
+    return "end" if passed or _exhausted(state) else "evaluator"
 
 
 def route_after_evaluation(state: GraphState) -> str:
     verdict = state.get("eval_result") or {}
     if verdict.get("passed"):
-        return "end"
+        return "report_generation"  # 평가받은 본문을 유지하며 최종 통과 상태 출력
     if _exhausted(state):
         return "report_generation"  # 미통과 사유를 반영한 한계 보고서를 한 번 더 출력
     return "supervisor" if verdict.get("action") == "research" else "report_generation"

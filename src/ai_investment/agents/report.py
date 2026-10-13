@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..contracts import NodeResult
+from ..control import MAX_REPORT_FAILURES
 from ..models import Evidence
 from ..scoring import WEIGHTS
 from ..state import GraphState, VIEWS
@@ -418,6 +419,14 @@ class ReportAgent:
 
     def run(self, state: GraphState) -> NodeResult:
         """One v2 node writes both payloads; it never modifies evaluator counters."""
+        verdict = state.get("eval_result") or {}
+        if verdict.get("passed") is True or (
+            verdict.get("passed") is False
+            and state.get("report_attempts", 0) >= MAX_REPORT_FAILURES
+        ):
+            # The real graph re-enters this node to publish the terminal verdict.
+            # Keep the evaluated prose; generating new prose would require another evaluation.
+            return self.finalize(state)
         if (state.get("selected_startup") or {}).get("name"):
             result = self.draft_writer(deepcopy(state))
             draft = ReportDraft.model_validate(result).model_copy(deep=True)
@@ -439,5 +448,5 @@ def run(state: GraphState) -> NodeResult:
 
 
 def finalize_report(state: GraphState) -> NodeResult:
-    """Bind final_report using guard_node('report_generation', finalize_report)."""
+    """Optional direct API; the graph finalizes through the existing report node."""
     return ReportAgent().finalize(state)
