@@ -23,7 +23,7 @@ from ai_investment.utils import logger as run_logger
 
 
 class AppIntegrationTests(unittest.TestCase):
-    def execute(self, mode="pass", *, discover=True):
+    def execute(self, mode="pass", *, discover=True, candidate_list=False):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         directory = Path(temp.name)
@@ -35,6 +35,8 @@ class AppIntegrationTests(unittest.TestCase):
 
         def discovery(_state):
             calls.append("discovery")
+            if candidate_list:
+                self.assertEqual(_state["criteria"]["candidate_names"], ["A", "B"])
             if mode == "no_candidates":
                 return {"candidates": []}
             return {"candidates": [{"name": "A"}, {"name": "B"}], "current_idx": 0,
@@ -100,6 +102,10 @@ class AppIntegrationTests(unittest.TestCase):
             return supervisor(state)
 
         argv = ["app.py", "--limit", "2", "--max-iterations", "2"]
+        if candidate_list:
+            path = directory / "candidates.json"
+            path.write_text('["A", "B"]', encoding="utf-8")
+            argv.extend(["--candidate-list", str(path)])
         if not discover:
             argv.extend(["--company", "직접 지정 기업"])
         with patch.object(run_logger, "LOG_DIR", directory / "logs"), \
@@ -131,6 +137,10 @@ class AppIntegrationTests(unittest.TestCase):
         self.assertEqual(calls.count("supervisor"), 2)
         self.assertEqual(calls.count("final"), 1)
         self.assertIn("FINAL / PASS", text)
+
+    def test_candidate_file_reaches_discovery_criteria(self):
+        _, calls, _ = self.execute(candidate_list=True)
+        self.assertIn("discovery", calls)
 
     def test_research_rescores_same_candidate_without_duplicate_history(self):
         result, calls, text = self.execute("research")

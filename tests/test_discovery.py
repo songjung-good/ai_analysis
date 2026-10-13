@@ -14,6 +14,7 @@ from ai_investment.contracts import guard_node
 from ai_investment.graph import AgentNodes, build_graph
 from ai_investment.models import Evidence
 from ai_investment.state import create_initial_state
+from ai_investment.discover import load_candidate_names
 from ai_investment.tools.web import _to_evidence, web_search
 
 
@@ -23,6 +24,10 @@ SOURCE = Evidence(
     url="https://example.com/company", excerpt="Fixture: private independent robotics startup, Series A.",
 )
 UNUSED = Evidence(source_id="unused", title="Unrelated result", excerpt="Unrelated content")
+CUSTOMER = Evidence(
+    source_id="customer", title="Fictional customer deployment",
+    url="https://customer.test/case", excerpt="Fixture: warehouse operator uses the robot in production.",
+)
 
 
 def fact(value, source="official"):
@@ -36,6 +41,8 @@ def check(confirmed=True):
 def verification(**updates):
     value = {
         "product": fact("물류창고에서 물품을 운반하는 AI 로봇"),
+        "customer_application": fact("가상 물류회사가 창고에 도입해 운영 중", "customer"),
+        "technical_evidence": check(),
         "funding_stage": fact("Series A"),
         "team": [fact("가상 창업자")],
         "domain_match": check(), "region_match": check(),
@@ -55,7 +62,7 @@ def state(**criteria):
 def agent_with(responses, search=None):
     model = Mock()
     model.with_structured_output.return_value.invoke.side_effect = responses
-    search = search if search is not None else Mock(return_value=[SOURCE, UNUSED])
+    search = search if search is not None else Mock(return_value=[SOURCE, CUSTOMER, UNUSED])
     return DiscoveryAgent(llm=model, search=search, sleep=Mock()), model, search
 
 
@@ -72,9 +79,9 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(result["selected_startup"], result["candidates"][0])
         self.assertEqual(result["selected_startup"]["name"], "Example Robotics")
         self.assertEqual(result["selected_startup"]["funding_stage"], "Series A")
-        self.assertEqual(result["references"], [SOURCE])
+        self.assertEqual(result["references"], [SOURCE, CUSTOMER])
         self.assertEqual(result["current_idx"], 0)
-        self.assertEqual(search.call_count, 4)
+        self.assertEqual(search.call_count, 6)
         self.assertEqual(model.with_structured_output.return_value.invoke.call_count, 2)
 
     def test_duplicate_company_and_candidate_limit(self):
@@ -84,8 +91,8 @@ class DiscoveryTests(unittest.TestCase):
         ])
         result = agent.run(state(candidate_limit=2))
         self.assertEqual([c["name"] for c in result["candidates"]], ["Example Robotics", "Second"])
-        self.assertEqual(search.call_count, 6)
-        self.assertEqual(result["references"], [SOURCE])
+        self.assertEqual(search.call_count, 10)
+        self.assertEqual(result["references"], [SOURCE, CUSTOMER])
 
     def test_unknown_private_public_exited_wrong_domain_or_stage_are_excluded(self):
         for update in (
@@ -93,6 +100,9 @@ class DiscoveryTests(unittest.TestCase):
             {"no_completed_exit": check(False)}, {"domain_match": check(False)},
             {"funding_stage": fact("Series D")}, {"funding_stage": fact(None)},
             {"product": fact(None)},
+            {"customer_application": fact(None)},
+            {"technical_evidence": check(None)},
+            {"technical_evidence": check(False)},
         ):
             with self.subTest(update=update):
                 agent, _, _ = agent_with([
@@ -171,19 +181,19 @@ class DiscoveryTests(unittest.TestCase):
             verification(private_company=check(False)),
         ])
         self.assertEqual(agent.run(state(candidate_limit=1))["candidates"], [])
-        self.assertEqual(search.call_count, 6)
+        self.assertEqual(search.call_count, 10)
 
     def test_existing_references_are_not_appended_again(self):
         agent, _, _ = agent_with([
             {"companies": [fact("Example Robotics")]}, verification(),
         ])
         initial = state()
-        initial["references"] = [SOURCE]
+        initial["references"] = [SOURCE, CUSTOMER]
         self.assertEqual(agent.run(initial)["references"], [])
 
     def test_changed_search_excerpt_is_preserved_for_verification(self):
         new = SOURCE.model_copy(update={"excerpt": "A later funding announcement"})
-        search = Mock(side_effect=[[SOURCE], [new], [], []])
+        search = Mock(side_effect=[[SOURCE], [new], [], [], [CUSTOMER], []])
         agent, model, _ = agent_with([
             {"companies": [fact("Example Robotics")]}, verification(),
         ], search)
@@ -192,12 +202,54 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIn(new.excerpt, result["references"][0].excerpt)
 
     def test_bad_criteria_fail_before_search(self):
-        for criteria in ({"candidate_limit": 0}, {"candidate_limit": 11}, {"funding_stages": []}, {"typo": 1}):
+        for criteria in ({"candidate_limit": 0}, {"candidate_limit": 11}, {"funding_stages": []},
+                         {"candidate_names": [" "]}, {"candidate_names": [123]}, {"typo": 1}):
             with self.subTest(criteria=criteria):
                 agent, _, search = agent_with([])
                 with self.assertRaises(ValueError):
                     agent.run(state(**criteria))
                 search.assert_not_called()
+
+    def test_shortlist_skips_broad_discovery_and_replaces_insufficient_candidate(self):
+        agent, model, search = agent_with([
+            verification(customer_application=fact(None)), verification(),
+        ])
+        with self.assertLogs("ai_investment.agents.discovery", level="INFO") as logs:
+            result = agent.run(state(candidate_limit=1, candidate_names=["Sparse", "Ready", "Unused"]))
+        self.assertEqual([item["name"] for item in result["candidates"]], ["Ready"])
+        self.assertEqual(search.call_count, 8)
+        self.assertTrue(all('"Sparse"' in call.args[0] or '"Ready"' in call.args[0]
+                            for call in search.call_args_list))
+        self.assertEqual(model.with_structured_output.return_value.invoke.call_count, 2)
+        self.assertIn("Sparse", logs.output[0])
+        self.assertEqual(result["selected_startup"]["source_ids"], ["customer", "official"])
+
+    def test_shortlist_with_no_search_results_skips_model_and_returns_no_candidates(self):
+        agent, model, search = agent_with([], Mock(return_value=[]))
+        result = agent.run(state(candidate_names=["Sparse"]))
+        self.assertEqual(result["candidates"], [])
+        model.with_structured_output.assert_not_called()
+        self.assertEqual(search.call_count, 4)
+
+    def test_uncited_sites_or_many_pages_on_same_site_do_not_meet_source_threshold(self):
+        for customer in (CUSTOMER.model_copy(update={"url": "https://www.example.com/customer"}), None):
+            with self.subTest(customer=customer):
+                response = verification() if customer else verification(
+                    customer_application=fact("창고에서 운영", "official"),
+                )
+                evidence = [SOURCE, customer] if customer else [SOURCE, CUSTOMER]
+                agent, _, _ = agent_with([response], Mock(return_value=evidence))
+                self.assertEqual(agent.run(state(candidate_names=["One site"]))["candidates"], [])
+
+    def test_candidate_file_validates_names_before_any_provider_call(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "candidates.json"
+            path.write_text('[" Ready ", "Other"]', encoding="utf-8")
+            self.assertEqual(load_candidate_names(path), ["Ready", "Other"])
+            for content in ('[]', '[" "]', '[123]', '{"names": ["Ready"]}', 'invalid JSON'):
+                path.write_text(content, encoding="utf-8")
+                with self.subTest(content=content), self.assertRaises(ValueError):
+                    load_candidate_names(path)
 
     @patch("dotenv.load_dotenv")
     @patch.dict(os.environ, {}, clear=True)

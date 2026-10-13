@@ -66,6 +66,8 @@ class Startup(TypedDict, total=False):
     product: str
     funding_stage: str
     team: list[str]
+    customer_application: str
+    source_ids: list[str]
 
 
 class Evaluation(TypedDict):

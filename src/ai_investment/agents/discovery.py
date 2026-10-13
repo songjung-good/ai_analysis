@@ -15,6 +15,7 @@ if __name__ == "__main__":
     raise SystemExit(0)
 
 import json
+import logging
 import os
 import re
 import time
@@ -23,7 +24,8 @@ from collections.abc import Callable
 from datetime import date
 from typing import Any, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from urllib.parse import urlparse
 
 from ..contracts import NodeResult
 from ..models import Evidence
@@ -32,6 +34,7 @@ from ..tools import tools_for
 
 
 TOOLS = tools_for("startup_discovery")
+logger = logging.getLogger(__name__)
 FundingStage = Literal["Seed", "Series A", "Series B", "Series C"]
 Search = Callable[..., list[Evidence]]
 Schema = TypeVar("Schema", bound=BaseModel)
@@ -51,6 +54,14 @@ class DiscoveryCriteria(_Model):
     )
     candidate_limit: int = Field(default=5, ge=1, le=10)
     disclosure_requirement: str | None = Field(default=None, min_length=1)
+    candidate_names: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("candidate_names")
+    @classmethod
+    def validate_names(cls, names: list[str]) -> list[str]:
+        if any(not name.strip() for name in names):
+            raise ValueError("candidate_names must contain non-empty company names")
+        return [name.strip() for name in names]
 
 
 class _SourcedText(_Model):
@@ -69,6 +80,8 @@ class _Proposals(_Model):
 
 class _Verification(_Model):
     product: _SourcedText
+    customer_application: _SourcedText
+    technical_evidence: _Check
     funding_stage: _SourcedText
     team: list[_SourcedText]
     domain_match: _Check
@@ -86,10 +99,17 @@ fact and confirmed eligibility check must cite its supporting source_ids. Use nu
 unknown or contradictory facts and [] for unknown team members.
 A company reported in evidence as an operating startup, venture company or raising early/growth funding is presumed to be a private_company with no_completed_exit (confirmed=true) unless there is evidence of an IPO, public trading, or acquisition. Cite supporting startup/funding articles. If acquisition, IPO or public listing is documented, mark private_company and/or no_completed_exit as false.
 Respect the supplied as_of date. Use the latest substantiated completed funding round.
-Funding stages must be one of Seed, Series A, Series B, Series C. Map Korean terms: 시드/엔젤/초기 -> Seed, 프리A/시리즈A -> Series A, 시리즈B -> Series B, 시리즈C -> Series C. If stage is not explicit in snippets but the company is an early stage venture, classify as Seed or Series A.
+Funding stages must be one of Seed, Series A, Series B, Series C. Map Korean terms: 시드/엔젤/초기 -> Seed, 프리A/시리즈A -> Series A, 시리즈B -> Series B, 시리즈C -> Series C. If the stage is not explicitly supported, use null. Do not map Series D or Pre-IPO to an earlier stage.
 Product descriptions should explain what the product does and for whom.
+customer_application describes identified customers or a specific customer segment AND
+documented deployment, paid sales or operational use. A target market, logo, planned pilot,
+MOU or investment announcement alone is not an actual application; use null when unknown.
+technical_evidence confirms company-specific public specifications, technical documentation,
+research or performance/operational validation. Generic robotics news is insufficient.
 Write descriptions in Korean, preserving company and person names.
 For proposal extraction, return each company once, merging aliases, and follow the limit.
+Prioritize companies with accessible technical materials AND actual customer/application
+evidence, rather than companies mentioned only in a single funding announcement.
 In each proposal value, write only the company's legal or commonly used name. Do not
 append a product description, funding details, parenthetical summary or explanatory text.
 For verification, evaluate only the named company. Each check means the stated requirement
@@ -216,7 +236,6 @@ class DiscoveryAgent:
             raise ValueError("domain must be a non-empty string")
         criteria = DiscoveryCriteria.model_validate(state.get("criteria", {}))
         region = criteria.region or "worldwide"
-        stages = ", ".join(criteria.funding_stages)
         is_korean = "대한민국" in region or "korea" in region.lower()
         initial_queries = (
             f"{region} AI 로봇 스타트업 투자 유치",
@@ -226,20 +245,27 @@ class DiscoveryAgent:
             f"{domain} robotics startup funding round",
         )
         pool: list[Evidence] = []
-        for query in initial_queries:
-            pool.extend(self._search(query))
+        if not criteria.candidate_names:
+            for query in initial_queries:
+                pool.extend(self._search(query))
         pool = _unique_evidence(pool)
         empty: NodeResult = {
             "candidates": [], "current_idx": 0, "selected_startup": {}, "references": []
         }
-        if not pool:
+        if not pool and not criteria.candidate_names:
             return empty
 
         proposal_limit = min(criteria.candidate_limit * 2, 20)
-        proposals = self._extract(_Proposals, {
-            "task": "Identify potentially eligible company names for further verification.",
-            "domain": domain, "criteria": criteria.model_dump(), "limit": proposal_limit,
-        }, pool)
+        if criteria.candidate_names:
+            proposals = _Proposals(companies=[
+                _SourcedText(value=name, source_ids=[]) for name in criteria.candidate_names
+            ])
+            proposal_limit = len(criteria.candidate_names)
+        else:
+            proposals = self._extract(_Proposals, {
+                "task": "Identify companies with public technical and customer application evidence for further verification.",
+                "domain": domain, "criteria": criteria.model_dump(), "limit": proposal_limit,
+            }, pool)
         candidates: list[Startup] = []
         references: list[Evidence] = []
         seen: set[str] = set()
@@ -259,27 +285,60 @@ class DiscoveryAgent:
             verify_queries = (
                 f'"{name}" 로봇 제품 대표 투자',
                 f'"{name}" 스타트업 투자 유치 시리즈',
+                f'"{name}" 로봇 기술 사양 성능 검증',
+                f'"{name}" 고객 도입 운영 납품 판매 사례',
             ) if is_korean else (
                 f'"{name}" official company product founders funding',
                 f'"{name}" {region} startup funding round',
+                f'"{name}" robotics technical specifications validation',
+                f'"{name}" customer deployment operational sales case study',
             )
             for query in verify_queries:
                 evidence.extend(self._search(query))
             evidence = _unique_evidence(evidence)
+            if not evidence:
+                logger.info("후보 제외: %s (검색 근거 없음)", name, extra={
+                    "event": "candidate_rejected", "target_name": name,
+                    "trace_id": state.get("trace_id"),
+                })
+                continue
             verified = self._extract(_Verification, {
-                "task": "Verify this company's current eligibility and basic information.",
+                "task": "Verify this company's current eligibility, technical data and actual customer applications.",
                 "company": name, "domain": domain, "criteria": criteria.model_dump(),
             }, evidence)
-            checks = [verified.domain_match, verified.private_company, verified.no_completed_exit]
+            checks = [verified.domain_match, verified.private_company, verified.no_completed_exit,
+                      verified.technical_evidence]
             if criteria.region:
                 checks.append(verified.region_match)
             if criteria.disclosure_requirement:
                 checks.append(verified.disclosure_match)
             if any(check.confirmed is not True for check in checks):
+                logger.info("후보 제외: %s (자격 또는 기술 자료 미확인)", name, extra={
+                    "event": "candidate_rejected", "target_name": name,
+                    "trace_id": state.get("trace_id"),
+                })
                 continue
             product = (verified.product.value or "").strip()
             stage = (verified.funding_stage.value or "").strip()
-            if not product or stage not in criteria.funding_stages:
+            application = (verified.customer_application.value or "").strip()
+            if not product or stage not in criteria.funding_stages or not application:
+                logger.info("후보 제외: %s (제품·투자 단계·실제 고객 적용 근거 부족)", name, extra={
+                    "event": "candidate_rejected", "target_name": name,
+                    "trace_id": state.get("trace_id"),
+                })
+                continue
+            used_ids = set(proposed.source_ids)
+            for fact in [verified.product, verified.customer_application, verified.funding_stage,
+                         *verified.team, *checks]:
+                used_ids.update(fact.source_ids)
+            sources = [item for item in evidence if item.source_id in used_ids]
+            groups = {urlparse(item.url).netloc.lower().removeprefix("www.")
+                      if item.url else item.title.strip().lower() for item in sources}
+            if len(groups - {""}) < 2:
+                logger.info("후보 제외: %s (서로 다른 출처 그룹 2개 미만)", name, extra={
+                    "event": "candidate_rejected", "target_name": name,
+                    "trace_id": state.get("trace_id"),
+                })
                 continue
             team = list(dict.fromkeys(
                 member.value.strip() for member in verified.team
@@ -287,11 +346,13 @@ class DiscoveryAgent:
             ))
             candidates.append({
                 "name": name, "product": product, "funding_stage": stage, "team": team,
+                "customer_application": application, "source_ids": sorted(used_ids),
             })
-            used_ids = set(proposed.source_ids)
-            for fact in [verified.product, verified.funding_stage, *verified.team, *checks]:
-                used_ids.update(fact.source_ids)
-            references.extend(item for item in evidence if item.source_id in used_ids)
+            references.extend(sources)
+            logger.info("분석 후보 채택: %s", name, extra={
+                "event": "candidate_accepted", "target_name": name,
+                "trace_id": state.get("trace_id"),
+            })
             if len(candidates) >= criteria.candidate_limit:
                 break
         if not candidates:

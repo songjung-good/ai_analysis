@@ -143,6 +143,14 @@ ai_analysis/
 
 ## Usage
 
+공개 자료가 있는 기업 목록을 먼저 검증해 분석하려면 다음 명령을 사용합니다.
+목록 안에서도 기술 자료·실제 고객 적용·서로 다른 출처 2개를 확보한 기업만 채택합니다.
+선정 기준과 기업별 자료: [실습용 기업 검색 목록](docs/DISCOVERY_CANDIDATES.md).
+
+```bash
+python app.py --candidate-list data/discovery_candidates.json --limit 3
+```
+
 실행 환경:
 
 ```bash

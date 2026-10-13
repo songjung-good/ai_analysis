@@ -67,6 +67,7 @@ def _describe(startup: Startup) -> str:
     return (
         f"기업명: {startup['name']}\n"
         f"제품: {startup.get('product') or '정보 없음'}\n"
+        f"고객 및 실제 적용: {startup.get('customer_application') or '정보 없음'}\n"
         f"투자 단계: {startup.get('funding_stage') or '정보 없음'}\n"
         f"팀 구성: {team}"
     )

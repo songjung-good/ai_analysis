@@ -20,6 +20,7 @@ from ai_investment.agents import (
     technical_analysis,
 )
 from ai_investment.graph import AgentNodes, build_graph
+from ai_investment.discover import load_candidate_names
 from ai_investment.agents.market import run_view as market_view
 from ai_investment.agents.report import finalize_report
 from ai_investment.orchestration.evaluator import run as evaluate_report
@@ -70,13 +71,19 @@ def parse_args():
         default=3,
         help="Max evaluation iterations before final report (default: 3)",
     )
-    parser.add_argument(
+    targets = parser.add_mutually_exclusive_group()
+    targets.add_argument(
         "--company",
         default=None,
         help="Direct target startup name to analyze (e.g. 플라잎, 베어로보틱스, Agility Robotics)",
     )
+    targets.add_argument("--candidate-list", type=Path, help="검증할 기업 이름 목록(JSON 파일)")
     parser.add_argument("--max-steps", type=int, default=20, help="Max supervisor calls (default: 20)")
     args = parser.parse_args()
+    try:
+        args.candidate_names = load_candidate_names(args.candidate_list) if args.candidate_list else []
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
     if args.limit < 1:
         parser.error("--limit must be at least 1")
     if args.company is not None:
@@ -132,7 +139,8 @@ def main():
     graph = build_graph(nodes)
     initial_state = create_initial_state(
         domain=args.domain,
-        criteria={"region": args.region, "candidate_limit": args.limit},
+        criteria={"region": args.region, "candidate_limit": args.limit,
+                  "candidate_names": args.candidate_names},
         max_iterations=args.max_iterations,
         max_steps=args.max_steps,
     )

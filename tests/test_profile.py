@@ -53,6 +53,11 @@ class ProfileAgentTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             classify(STARTUP, FakeClassifier(bad))
 
+    def test_discovery_customer_application_reaches_classifier(self):
+        fake = FakeClassifier(GOOD)
+        classify({**STARTUP, "customer_application": "가상 공장에서 조립 로봇 운영"}, fake)
+        self.assertIn("가상 공장에서 조립 로봇 운영", fake.messages[1][1])
+
     def test_missing_product_skips_llm_and_flags_insufficient(self):
         fake = FakeClassifier(GOOD)
         result = classify({"name": "무명로보틱스"}, fake)
