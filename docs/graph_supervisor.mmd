@@ -1,0 +1,44 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	startup_discovery(startup_discovery)
+	customer_profile(customer_profile)
+	investment_decision(investment_decision)
+	next_candidate(next_candidate)
+	report_generation(report_generation)
+	supervisor(supervisor)
+	technical(technical)
+	market(market)
+	stakeholder(stakeholder)
+	domain(domain)
+	evaluator(evaluator)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> startup_discovery;
+	customer_profile --> supervisor;
+	domain --> supervisor;
+	evaluator -. &nbsp;end&nbsp; .-> __end__;
+	evaluator -.-> report_generation;
+	evaluator -.-> supervisor;
+	investment_decision -.-> next_candidate;
+	investment_decision -.-> report_generation;
+	market --> supervisor;
+	next_candidate --> customer_profile;
+	report_generation -. &nbsp;end&nbsp; .-> __end__;
+	report_generation -.-> evaluator;
+	stakeholder --> supervisor;
+	startup_discovery -.-> customer_profile;
+	startup_discovery -.-> report_generation;
+	supervisor -.-> domain;
+	supervisor -.-> investment_decision;
+	supervisor -.-> market;
+	supervisor -.-> report_generation;
+	supervisor -.-> stakeholder;
+	supervisor -.-> technical;
+	technical --> supervisor;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
