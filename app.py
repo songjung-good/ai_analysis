@@ -24,6 +24,7 @@ from ai_investment.agents import (  # noqa: E402
     startup_discovery,
     technical_analysis,
 )
+from ai_investment.agents.market import run_view as market_view  # noqa: E402
 from ai_investment.graph import AgentNodes, build_graph  # noqa: E402
 from ai_investment.state import create_initial_state  # noqa: E402
 
@@ -176,7 +177,8 @@ def main():
         customer_profile=customer_profile,
         technical_analysis=technical_analysis,
         business_analysis=business_analysis,
-        market_analysis=market_analysis,
+        # supervisor 구조는 공통 관점 결과(analyses)를 돌려주는 run_view를 써야 한다
+        market_analysis=market_view if use_supervisor else market_analysis,
         investment_decision=investment_decision,
         report_generation=report_generation,
         **(supervisor_nodes if use_supervisor else {}),
