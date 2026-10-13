@@ -28,14 +28,28 @@ from ai_investment.agents.market import run_view as market_view  # noqa: E402
 from ai_investment.graph import AgentNodes, build_graph  # noqa: E402
 from ai_investment.state import create_initial_state  # noqa: E402
 
+def _business_model():
+    """business 관점 분석용 LLM.
+
+    기본 생성기(create_analysis_model)는 timeout 60초에 추론 강도를 지정하지 않아
+    gpt-5-nano에서 시간 초과가 난다. 추론 강도와 timeout을 환경변수로 조정한다.
+    """
+    from langchain_openai import ChatOpenAI
+
+    effort = os.getenv("OPENAI_REASONING_EFFORT", "low")
+    timeout = float(os.getenv("OPENAI_TIMEOUT", "180"))
+    extra = {"reasoning_effort": effort} if effort else {}
+    return ChatOpenAI(model=os.environ["OPENAI_MODEL"], timeout=timeout, max_retries=0, **extra)
+
+
 def stakeholder_analysis(state):
     """business 에이전트를 이해관계자 관점으로 호출한다."""
-    return business_analysis(state, view="stakeholder")
+    return business_analysis(state, view="stakeholder", model=_business_model())
 
 
 def domain_analysis(state):
     """business 에이전트를 도메인 적용 관점으로 호출한다."""
-    return business_analysis(state, view="domain")
+    return business_analysis(state, view="domain", model=_business_model())
 
 
 # supervisor 구조에 필요한 노드의 위치. module이 None이면 이 파일에 정의된 함수를 쓴다.
@@ -236,6 +250,9 @@ def main():
             f"supervisor 호출={final_state.get('step_count')} | "
             f"재작업={final_state.get('rework_count')}"
         )
+    errors = {k: v for k, v in (final_state.get("node_errors") or {}).items() if v}
+    if errors:
+        print(f"⚠ 노드 오류(마지막 상태): {errors}")
     print(f"🧭 trace_id: {trace_id}  (결정 로그: outputs/logs/{trace_id}.jsonl)")
     print("=" * 60)
 
