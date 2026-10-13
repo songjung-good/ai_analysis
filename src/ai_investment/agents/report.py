@@ -152,6 +152,15 @@ def _write_report_draft(state: GraphState) -> ReportDraft:
         "기업 자체 주장과 독립적인 검증을 구분한다. 인용을 채우려고 무관한 자료를 붙이지 않는다. "
         "feedback이 있으면 previous_draft의 문제를 수정하고 유효한 내용과 인용은 유지한다. "
         "재조사 결과가 들어왔다면 최신 analyses를 반영한다. 문단당 350자 이내로 총 10쪽 이내로 작성한다. "
+        "가독성 규칙: 한 문단은 한 요점만, 가능한 120~180자로 작성한다. "
+        "summary는 기업이 해결하는 문제와 현재 투자 판단의 핵심 이유를 두 문단으로 요약한다. "
+        "technical, market, stakeholder, domain은 각각 최대 세 문단으로, "
+        "'핵심 판단: ', '확인 근거: ', '한계: ' 순서로 시작한다. "
+        "한계에는 그 관점의 미확인 조건이나 반대 근거를 명시하고, 근거 없이 한계가 없다고 쓰지 않는다. "
+        "risks는 서로 다른 제약·불확실성을 한 항목씩 적고, 필요한 후속 확인을 함께 적는다. "
+        "decision_basis는 코드 판단을 바꿀 수 있는 조건과 그 이유만 간결하게 적는다. "
+        "점수·가중치·전체 평가 문장을 반복하거나 내부 필드명, None, source_id 해시를 본문에 쓰지 않는다. "
+        "API 실행 실패와 기업의 투자 위험을 구분한다. 인용 ID는 source_ids 배열에만 담는다. "
         "missing_information과 evaluation_notes는 코드가 채우므로 빈 배열로 반환한다."
     )
     verdict = state.get("eval_result") or {}
@@ -286,85 +295,157 @@ def render_report_pdf(draft: ReportDraft, state: GraphState, references: list[Ev
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle
 
     font = _font_name()
-    normal = ParagraphStyle("body", fontName=font, fontSize=10, leading=17, wordWrap="CJK",
-                            spaceAfter=10, textColor=colors.HexColor("#273547"))
-    heading = ParagraphStyle("heading", parent=normal, fontSize=16, leading=23, spaceAfter=15,
-                             keepWithNext=True, textColor=colors.HexColor("#006D77"))
-    small = ParagraphStyle("source", parent=normal, fontSize=8, leading=12)
+    navy, teal = colors.HexColor("#173449"), colors.HexColor("#136D75")
+    normal = ParagraphStyle("body", fontName=font, fontSize=10.5, leading=17, wordWrap="CJK",
+                            spaceAfter=8, textColor=navy)
+    heading = ParagraphStyle("heading", parent=normal, fontSize=15, leading=22, spaceBefore=15,
+                             spaceAfter=10, keepWithNext=True, textColor=teal)
+    small = ParagraphStyle("source", parent=normal, fontSize=8.5, leading=13, spaceAfter=5)
+    compact = ParagraphStyle("compact", parent=normal, fontSize=9.5, leading=14, spaceAfter=4)
+    title = ParagraphStyle("title", parent=normal, fontSize=25, leading=33, spaceAfter=7)
+    label = ParagraphStyle("label", parent=compact, textColor=teal, spaceAfter=2, keepWithNext=True)
     numbers = {source.source_id: i for i, source in enumerate(references, 1)}
     startup = state.get("selected_startup") or {}
     name = str(startup.get("name") or "평가 대상 없음")
     trace = str(state.get("trace_id") or "trace-unavailable")
     story: list[Any] = []
+    width = A4[0] - 96
+
+    def paragraph(content: str, style=normal):
+        return Paragraph(html.escape(str(content)).replace("\n", "<br/>"), style)
 
     def text(content: str, style=normal):
-        story.append(Paragraph(html.escape(content).replace("\n", "<br/>"), style))
+        story.append(paragraph(content, style))
+
+    def cited(item: ReportParagraph, *, preview=False):
+        content = item.text
+        if preview and len(content) > 100:
+            content = content[:100].rstrip() + "…"
+        citation = " [" + ", ".join(str(numbers[sid]) for sid in item.source_ids) + "]" if item.source_ids else ""
+        return content + citation
+
+    def table(rows, widths, *, header=True):
+        cells = [[paragraph(value, compact) for value in row] for row in rows]
+        block = Table(cells, colWidths=widths, repeatRows=1 if header else 0, hAlign="LEFT")
+        styles = [("VALIGN", (0, 0), (-1, -1), "TOP"),
+                  ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                  ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                  ("LINEBELOW", (0, 0), (-1, -1), 0.4, colors.HexColor("#D8E2E8"))]
+        if header:
+            styles.extend([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E7F0F3")),
+                           ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F6F8FA")])])
+        else:
+            styles.append(("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#EEF4F7")))
+        block.setStyle(TableStyle(styles))
+        story.extend([block, Spacer(1, 8)])
 
     def section(title: str, items: list[ReportParagraph]):
         text(title, heading)
         for item in items:
-            citation = " [" + ", ".join(str(numbers[sid]) for sid in item.source_ids) + "]" if item.source_ids else ""
-            text(item.text + citation)
+            content = cited(item)
+            match = re.match(r"^(핵심 판단|확인 근거|한계)\s*[:：]\s*(.*)$", content, re.DOTALL)
+            if match:
+                text(match[1], label)
+                text(match[2])
+            else:
+                text(content)
 
-    text("SUMMARY", heading)
-    text(name)
+    text("SUMMARY / 투자 검토 요약", label)
+    text(name, title)
     text(str(state.get("domain", "")), small)
     score = state.get("investment_score")
     shown = f"{score:.2f} / 5.00" if isinstance(score, (int, float)) and not isinstance(score, bool) else "미산정"
-    if startup:
-        text(f"코드 투자 판단: {DECISION_NAMES.get(state.get('decision'), '판단 자료 부족')} | 가중 점수: {shown}")
+    analyses = state.get("analyses") or {}
+    if not startup:
+        analysis_status = "평가 대상 없음"
+    elif any(item.get("status") == "failed" for item in analyses.values()):
+        analysis_status = "분석 실패 포함"
+    elif not analyses or any(item.get("missing_items") for item in analyses.values()):
+        analysis_status = "자료 부족"
+    elif shown == "미산정":
+        analysis_status = "채점 미완료"
+    else:
+        analysis_status = "분석 완료"
+    verdict = state.get("eval_result") or {}
+    quality = "검증 통과" if final and verdict.get("passed") is True else "검증 미통과" if final else "평가 대기"
+    table([["투자 판단\n" + DECISION_NAMES.get(state.get("decision"), "판단 자료 부족"),
+            "가중 점수\n" + shown],
+           ["분석 상태: " + analysis_status, "보고서 품질: " + quality]], [width * 0.56, width * 0.44], header=False)
+    text("한눈에 보는 핵심", heading)
     for item in draft.summary:
-        citation = " [" + ", ".join(str(numbers[sid]) for sid in item.source_ids) + "]" if item.source_ids else ""
-        text(item.text + citation)
-    section("기업 및 사업 개요", draft.company or [_notice("확인된 기업 개요 정보 부족")])
-    story.append(PageBreak())
-    section(VIEW_HEADINGS["technical"], draft.technical)
-    story.append(Spacer(1, 14))
-    section(VIEW_HEADINGS["market"], draft.market)
-    story.append(PageBreak())
-    section(VIEW_HEADINGS["stakeholder"], draft.stakeholder)
-    story.append(Spacer(1, 14))
-    section(VIEW_HEADINGS["domain"], draft.domain)
-    story.append(PageBreak())
-    section("RISKS - 제약 및 불확실성", draft.risks)
-    text("투자 판단 및 점수 근거", heading)
+        text(cited(item), compact)
     if startup:
         labels = {"team": "창업자·팀", "market": "시장성", "technology": "제품·기술력",
                   "competition": "경쟁 우위", "traction": "실적", "investment_terms": "투자 조건"}
+        text("투자 평가 점수", heading)
+        rows = [["평가 항목", "반영 비중", "점수"]]
         for key, weight in WEIGHTS.items():
             value = (state.get("scores") or {}).get(key)
-            shown = f"{value:g} / 5" if isinstance(value, (int, float)) and not isinstance(value, bool) else "정보 부족"
-            text(f"{labels[key]} ({weight:.0%}): {shown}", small)
-        if state.get("decision_reason"):
-            text(str(state["decision_reason"]))
-    for item in draft.decision_basis:
-        citation = " [" + ", ".join(str(numbers[sid]) for sid in item.source_ids) + "]" if item.source_ids else ""
-        text(item.text + citation)
+            value_text = f"{value:g} / 5" if isinstance(value, (int, float)) and not isinstance(value, bool) else "정보 부족"
+            rows.append([labels[key], f"{weight:.0%}", value_text])
+        table(rows, [width * 0.5, width * 0.23, width * 0.27])
+    text("우선 확인할 불확실성", heading)
+    for item in draft.risks:
+        text(cited(item, preview=True), compact)
+    text("상세 근거와 전체 확인 사항은 뒤의 분석·후속 검토에서 확인할 수 있습니다.", small)
+
+    story.append(PageBreak())
+    text("01 / 기업과 기술·시장", label)
+    section("기업 및 사업 개요", draft.company or [_notice("확인된 기업 개요 정보 부족")])
+    section(VIEW_HEADINGS["technical"], draft.technical)
+    section(VIEW_HEADINGS["market"], draft.market)
+    story.append(PageBreak())
+    text("02 / 고객과 실제 적용", label)
+    section(VIEW_HEADINGS["stakeholder"], draft.stakeholder)
+    section(VIEW_HEADINGS["domain"], draft.domain)
+    story.append(PageBreak())
+    text("03 / 판단 조건과 후속 검토", label)
+    section("RISKS - 제약 및 불확실성", draft.risks)
+    section("투자 판단 근거 및 재검토 조건", draft.decision_basis)
+    text("근거 부족 항목 / 후속 확인", heading)
+    gaps = draft.missing_information
+    if gaps:
+        rows = [["관점", "추가 확인이 필요한 내용"]]
+        for item in gaps:
+            view, separator, detail = item.text.partition(":")
+            if separator and detail.strip() in (state.get("node_errors") or {}).values():
+                detail = "분석 실행 실패로 검토가 완료되지 않았습니다. 상세 오류는 실행 기록에서 확인할 수 있습니다."
+            rows.append([view if separator else "추가 확인", detail.strip() if separator else item.text])
+        table(rows, [width * 0.28, width * 0.72])
+    else:
+        text("관점 결과에 기록된 부족 항목이 없습니다.")
     history = state.get("evaluations") or []
-    if history:
+    if len(history) > 1:
         text("후보 평가 이력", heading)
+        rows = [["기업", "가중 점수", "투자 판단"]]
         for item in history:
             value = item.get("score")
-            shown = f"{value:g}" if isinstance(value, (int, float)) else "미산정"
-            text(f"{item.get('startup_name', '기업명 없음')}: {shown} / 5, "
-                 f"{DECISION_NAMES.get(item.get('decision'), '판단 자료 부족')}", small)
-    section("근거 부족 항목", draft.missing_information or [_notice("관점 결과에 기록된 부족 항목이 없습니다.")])
+            shown = f"{value:g} / 5" if isinstance(value, (int, float)) and not isinstance(value, bool) else "미산정"
+            rows.append([item.get("startup_name", "기업명 없음"), shown,
+                         DECISION_NAMES.get(item.get("decision"), "판단 자료 부족")])
+        table(rows, [width * 0.4, width * 0.25, width * 0.35])
     section("품질 평가 상태", draft.evaluation_notes)
     story.append(PageBreak())
-    text("REFERENCE", heading)
+    text("REFERENCE / 사용한 자료", heading)
+    text("본문의 [번호]와 아래 자료를 연결해 확인할 수 있습니다.", small)
     if not references:
         text("실제 분석에 사용한 외부 자료가 없습니다.")
     for i, source in enumerate(references, 1):
-        text(f"[{i}] {source.title} ({source.source_id})", small)
+        text(f"[{i}] {source.title}", normal)
         location = source.url or "URL 없음"
         if source.page:
             location += f" | p. {source.page}"
         if source.published_at:
             location += f" | {source.published_at}"
-        text(location, small)
+        if source.url and source.url.startswith(("https://", "http://")):
+            safe = html.escape(source.url, quote=True)
+            story.append(Paragraph(f'<link href="{safe}" color="#136D75">{html.escape(location)}</link>', small))
+        else:
+            text(location, small)
+        story.append(Spacer(1, 7))
     output_path = Path(output_path).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, filename = tempfile.mkstemp(prefix=".investment-report-", suffix=".pdf", dir=output_path.parent)
@@ -381,14 +462,14 @@ def render_report_pdf(draft: ReportDraft, state: GraphState, references: list[Ev
         canvas.rect(0, height - 10, width, 10, fill=1, stroke=0)
         canvas.setFont(font, 8)
         canvas.drawString(54, height - 33, "AI STARTUP REVIEW / " + ("SAMPLE" if sample else status))
-        canvas.drawString(54, height - 46, f"trace_id: {trace[:100]}")
-        canvas.drawString(54, 28, date)
-        canvas.drawRightString(width - 54, 28, str(document.page))
+        canvas.drawString(48, 28, date)
+        canvas.drawCentredString(width / 2, 28, f"trace_id: {trace[:100]}")
+        canvas.drawRightString(width - 48, 28, str(document.page))
         canvas.restoreState()
 
     try:
-        document = SimpleDocTemplate(str(temporary), pagesize=A4, leftMargin=54, rightMargin=54,
-                                     topMargin=70, bottomMargin=55, title=f"{name} - 투자 평가 보고서")
+        document = SimpleDocTemplate(str(temporary), pagesize=A4, leftMargin=48, rightMargin=48,
+                                     topMargin=60, bottomMargin=52, title=f"{name} - 투자 평가 보고서")
         document.build(story, onFirstPage=decorate, onLaterPages=decorate)
         with pymupdf.open(temporary) as pdf:
             if not 1 <= pdf.page_count <= MAX_PAGES:
