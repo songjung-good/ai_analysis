@@ -52,4 +52,27 @@ source_ids는 제공된 Evidence와 대조한다. 공백과 8자 이상의 유�
 
 ## 구현 단계
 
-Step 3의 관점별 검색·프롬프트 분리와 Step 4의 공통 출력 변환을 구현했다. `rework_hints`에 따른 질의 변경과 실제 질의 로그는 Step 5에서 구현한다. 현재 실제 API·Supervisor 통합 실행을 검증했다는 의미는 아니다.
+Step 3의 관점별 검색·프롬프트 분리, Step 4의 공통 출력 변환, Step 5의 재작업 반영과 검색 로그를 구현했다. 실제 API·Supervisor 통합 실행을 검증했다는 의미는 아니다.
+
+## 재작업 입력과 결과
+
+- Supervisor는 `rework_hints[view]`에 누락 항목·보완 질문을 문자열 목록으로 전달한다.
+- 공백·중복·빈 요청을 정리하고 해당 관점의 요청만 읽는다. 다른 관점의 요청은 검색과 분석에 섞지 않는다.
+- 요청이 있으면 기업·관점·요청 내용 중심으로 질의를 바꾼다. 고객 사례, 독립 검증·반대 근거, 공식 조건·위험의 세 방향으로 검색한다. 호출 수는 3회, 호출당 결과 상한은 5개다.
+- 요청은 분석 payload의 rework_hints에도 전달한다. 요청이 해결됐다는 가정으로 missing_items를 자동 삭제하지 않는다.
+- 재작업 때 자기 관점의 이전 done 결과와 그 결과가 인용한 Evidence만 재사용한다. 과거의 다른 관점·전체 출처를 사실 근거로 넘기지 않는다.
+- 모델은 기존 근거와 새 근거를 검토해 최신 전체 관점 결과를 반환한다. 기존 결과는 독립 근거로 취급하지 않는다. 반대 근거는 반영하고 미해결 요청·핵심 상충은 view_missing_items에 남긴다.
+- 이전 결과의 대상 일치는 후보 전환 시 candidate_reset_update()를 적용하는 그래프 계약으로 보장해야 한다. 이 연결은 통합 담당자 작업이다.
+- 검색이 비어 있고 재사용할 근거도 없으면 모델을 호출하지 않고 요청과 필수 누락을 반환한다.
+- Agent는 rework_hints·횟수를 직접 수정하지 않는다. 요청 소비와 상한 관리는 Supervisor가 담당한다.
+
+## 검색 로그 연결
+
+표준 logging의 `ai_investment.agents.business_search` 로거가 INFO 레코드를 생성한다. 자체 파일 Handler나 별도 logger 모듈은 추가하지 않았다.
+
+- event: search_started, search_finished, search_failed.
+- 연결 필드: trace_id, target_name, node, view, attempt(관점별 재작업 횟수).
+- 작업 필드: query, rework_hints, result_count(완료), error(실패).
+- query는 실행 직전에 기록한다. 첫 호출 실패 시 실행하지 않은 나머지 질의를 실행 기록으로 남기지 않는다.
+- 통합 담당자는 INFO 레벨을 활성화하고 JSONL Handler/Formatter에서 위 extra 필드를 저장한다. 표준 logging 레코드는 설정 없이 JSONL·LangSmith에 자동 저장되지 않는다.
+- logger 연결은 [STATE_CONTRACT.md](STATE_CONTRACT.md)의 trace_id·외부 관측성 계약을 따른다. Mock 검증 로그는 실제 실행 Trace로 제출하지 않는다.

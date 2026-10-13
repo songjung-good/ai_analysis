@@ -191,6 +191,7 @@ def analyze_business(
     *,
     model: Any = None,
     view: BusinessView | None = None,
+    rework_hints: tuple[str, ...] = (),
 ) -> BusinessAnalysis:
     validate_business_view(view)
     payload = {
@@ -203,6 +204,17 @@ def analyze_business(
     if view is not None:
         payload["view"] = view
         prompt += "\n\n" + VIEW_INSTRUCTIONS[view]
+        if rework_hints:
+            payload["rework_hints"] = list(rework_hints)
+            previous = state.get("analyses", {}).get(view)
+            if previous and previous.get("view") == view and previous.get("status") == "done":
+                payload["previous_result"] = previous
+            prompt += """\n이번 호출은 재작업이다. rework_hints의 누락 항목을 우선 확인한다.
+이전 결과는 검토 대상이며 독립 근거가 아니다. 제공된 Evidence로 다시 확인한 내용만
+유지하고, 보완된 최신 전체 관점 결과를 반환한다. 반대 근거가 있으면 수정한다.
+요청을 받았다는 이유로 누락이 해결되었다고 처리하지 않는다. 확인하지 못한 요청과
+핵심 불확실성은 view_missing_items에 남긴다.
+"""
     model = model if model is not None else create_analysis_model()
     # Pydantic constraints are validated locally after function-call parsing.
     structured = model.with_structured_output(

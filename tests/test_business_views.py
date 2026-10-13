@@ -199,6 +199,67 @@ class BusinessViewTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "search unavailable"):
             run(state, search=failing_search, model=FakeModel())
 
+    def test_rework_reuses_only_own_cited_evidence_and_logs_changed_queries(self):
+        state = create_initial_state(domain="Physical AI", criteria={}, max_iterations=1, trace_id="rework-test")
+        state["selected_startup"] = {"name": "기업"}
+        original = self.complete_result("domain")
+        initial_raw = original.model_copy(update={"view_findings": original.view_findings[:-1]})
+        prior_sources = [
+            Evidence(source_id="customer", title="고객", excerpt="기업 현장 적용 사례"),
+            Evidence(source_id="supplier", title="공급사", excerpt="기업 PoC 단계"),
+        ]
+        first_queries = []
+
+        def first_search(query, **kwargs):
+            first_queries.append(query)
+            return prior_sources
+
+        first = run(state, view="domain", search=first_search, model=FakeModel(initial_raw.model_dump()))
+        state.update(first)
+        hint = "안전 정지 조건과 운영 제약 확인"
+        state["rework_hints"] = {"domain": [hint], "stakeholder": ["다른 관점 비용 부담"]}
+        state["rework_count"]["domain"] = 1
+        state["references"].append(Evidence(source_id="other", title="다른 관점", excerpt="다른 관점 자료"))
+        before = deepcopy(state)
+        latest_raw = original.model_dump()
+        latest_raw["view_findings"][-1]["source_ids"] = ["new"]
+        latest_raw["view_findings"][-1]["text"] = "비상 정지와 현장 통합 조건이 있다."
+        model = FakeModel(latest_raw)
+        next_queries = []
+
+        def rework_search(query, **kwargs):
+            next_queries.append(query)
+            return [Evidence(source_id="new", title="운영 조건", excerpt="비상 정지와 현장 통합 조건")]
+
+        with self.assertLogs("ai_investment.agents.business_search", level="INFO") as logs:
+            latest = run(state, view="domain", search=rework_search, model=model)
+        payload = json.loads(model.messages[1][1])
+        self.assertEqual(payload["rework_hints"], [hint])
+        self.assertEqual(payload["previous_result"], first["analyses"]["domain"])
+        self.assertEqual({item["source_id"] for item in payload["evidence"]}, {"customer", "supplier", "new"})
+        self.assertNotEqual(first_queries, next_queries)
+        self.assertEqual(len(next_queries), 3)
+        self.assertTrue(all(hint in query and "다른 관점 비용 부담" not in query for query in next_queries))
+        started = [record for record in logs.records if record.event == "search_started"]
+        self.assertEqual([record.query for record in started], next_queries)
+        self.assertTrue(all(record.trace_id == "rework-test" and record.attempt == 1 for record in started))
+        self.assertTrue(all(record.target_name == "기업" and record.view == "domain" for record in started))
+        self.assertTrue(first["analyses"]["domain"]["missing_items"])
+        self.assertEqual(latest["analyses"]["domain"]["missing_items"], [])
+        self.assertEqual(latest["analyses"]["domain"]["source_ids"], ["customer", "new", "supplier"])
+        self.assertEqual(state, before)
+
+    def test_rework_does_not_clear_unresolved_hint_when_search_is_empty(self):
+        state = {
+            "selected_startup": {"name": "기업"},
+            "rework_hints": {"domain": ["운영 시간 확인"]},
+        }
+        model = FakeModel()
+        result = run(state, view="domain", search=lambda *args, **kwargs: [], model=model)
+        self.assertIn("운영 시간 확인", result["analyses"]["domain"]["missing_items"])
+        self.assertEqual(result["analyses"]["domain"]["source_ids"], [])
+        self.assertEqual(model.calls, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

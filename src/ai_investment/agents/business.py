@@ -5,7 +5,7 @@ from typing import Any
 
 from ..contracts import NodeResult
 from ..models import Evidence
-from ..state import GraphState, ViewResult
+from ..state import GraphState, ViewResult, dedupe_by_source_id
 from ..tools import tools_for
 from .business_analysis import analyze_business, cited_source_ids
 from .business_models import BusinessAnalysis, BusinessView
@@ -70,9 +70,24 @@ def run(
             if not os.getenv("TAVILY_API_KEY", "").strip():
                 raise ValueError("Missing environment variables: TAVILY_API_KEY")
             search = TOOLS[0]
-        evidence = collect_evidence(plan, search=search)
+        evidence = collect_evidence(
+            plan, search=search, trace_id=state.get("trace_id"), view=view,
+            attempt=state.get("rework_count", {}).get(view, 0) if view else 0,
+            target_name=state["selected_startup"]["name"],
+        )
+        if plan.rework_hints:
+            previous = state.get("analyses", {}).get(view)
+            if previous and previous.get("view") == view and previous.get("status") == "done":
+                cited = set(previous["source_ids"])
+                prior_evidence = [Evidence.model_validate(item) for item in state.get("references", [])]
+                evidence = dedupe_by_source_id(
+                    [item for item in prior_evidence if item.source_id in cited], evidence,
+                )
         if evidence:
-            result = analyze_business(state, evidence, plan.information_gaps, model=model, view=view)
+            result = analyze_business(
+                state, evidence, plan.information_gaps, model=model, view=view,
+                rework_hints=plan.rework_hints,
+            )
         else:
             result = BusinessAnalysis(
                 commercialization_stage="unknown",
@@ -80,6 +95,7 @@ def run(
                 stage_source_ids=[], customer_cases=[], deployment_costs=[],
                 deployment_effects=[], regulatory_risks=[], evidence_assessment=[],
                 information_gaps=[*plan.information_gaps, "검색 근거 부족: 추가 자료 확인 필요"],
+                view_missing_items=list(plan.rework_hints),
                 summary="검색 근거가 없어 해당 관점을 판단할 수 없다.",
             )
         if view is not None:
@@ -95,7 +111,9 @@ def run(
         return {
             "analyses": {view: {
                 "view": view, "summary": "분석 실행 실패", "claims": [], "source_ids": [],
-                "missing_items": list(VIEW_REQUIREMENTS[view].values()), "status": "failed",
+                "missing_items": list(dict.fromkeys([
+                    *plan.rework_hints, *VIEW_REQUIREMENTS[view].values(),
+                ])), "status": "failed",
             }},
             "references": [], "node_status": {view: "failed"},
             "node_errors": {view: f"{type(exc).__name__}: {exc}"},

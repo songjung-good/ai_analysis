@@ -1,22 +1,25 @@
 """Bounded web research for the deployment and business Agent."""
 
+import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from ..models import Evidence
-from ..state import GraphState
+from ..state import GraphState, dedupe_by_source_id
 from ..tools.web import web_search
 from .business_models import BusinessView, validate_business_view
 
 
 MAX_SEARCH_CALLS = 3
 MAX_RESULTS_PER_CALL = 5
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class SearchPlan:
     queries: tuple[str, ...]
     information_gaps: tuple[str, ...]
+    rework_hints: tuple[str, ...] = ()
 
 
 def _mapping(value: object, field: str) -> Mapping:
@@ -98,24 +101,46 @@ def build_search_plan(state: GraphState, *, view: BusinessView | None = None) ->
             "입력 누락: profile.info_sufficiency", "입력 누락: profile.missing_info",
         }
         gaps = [gap for gap in gaps if gap not in unrelated]
-    return SearchPlan(queries, tuple(dict.fromkeys(gaps)))
+    hints = ()
+    if view is not None:
+        requests = _mapping(state.get("rework_hints"), "rework_hints")
+        hints = tuple(dict.fromkeys(_strings(requests.get(view), f"rework_hints.{view}")))
+        if hints:
+            focus = " ".join(hints)
+            scope = "이해관계자" if view == "stakeholder" else "도메인 적용"
+            queries = tuple(
+                f"{subject}{customer} {scope} {focus} {angle}"
+                for angle in ("고객 사례 원자료", "독립 검증 한계 반대 근거", "공식 자료 조건 위험")
+            )
+    return SearchPlan(queries, tuple(dict.fromkeys(gaps)), hints)
 
 
 def collect_evidence(
-    plan: SearchPlan, *, search: Callable[..., list[Evidence]] = web_search
+    plan: SearchPlan, *, search: Callable[..., list[Evidence]] = web_search,
+    trace_id: str | None = None, view: BusinessView | None = None, attempt: int = 0,
+    target_name: str | None = None,
 ) -> list[Evidence]:
     """Search once per topic; propagate failures and merge repeated source IDs."""
     if len(plan.queries) != MAX_SEARCH_CALLS:
         raise ValueError("business research requires exactly three queries")
-    sources: dict[str, Evidence] = {}
+    evidence = []
     for query in plan.queries:
-        results = search(query, max_results=MAX_RESULTS_PER_CALL)
-        for item in results[:MAX_RESULTS_PER_CALL]:
-            previous = sources.get(item.source_id)
-            if previous is None:
-                sources[item.source_id] = item
-            elif item.excerpt not in previous.excerpt:
-                sources[item.source_id] = previous.model_copy(
-                    update={"excerpt": f"{previous.excerpt}\n\n{item.excerpt}"}
-                )
-    return list(sources.values())
+        context = {
+            "trace_id": trace_id, "node": view or "business_analysis", "view": view,
+            "target_name": target_name,
+            "attempt": attempt, "query": query, "rework_hints": list(plan.rework_hints),
+        }
+        logger.info("business_search_started: %s", query, extra={**context, "event": "search_started"})
+        try:
+            results = search(query, max_results=MAX_RESULTS_PER_CALL)
+        except Exception as exc:
+            logger.info("business_search_failed", extra={
+                **context, "event": "search_failed", "error": f"{type(exc).__name__}: {exc}",
+            })
+            raise
+        evidence.extend(results[:MAX_RESULTS_PER_CALL])
+        logger.info("business_search_finished", extra={
+            **context, "event": "search_finished",
+            "result_count": len(results[:MAX_RESULTS_PER_CALL]),
+        })
+    return dedupe_by_source_id([], evidence)
