@@ -6,7 +6,13 @@ from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
 
 
 Stage = Literal["demo", "pilot", "paid_operation", "unknown"]
+BusinessView = Literal["stakeholder", "domain"]
 Text = Annotated[str, Field(min_length=1)]
+
+
+def validate_business_view(view: BusinessView | None) -> None:
+    if view not in (None, "stakeholder", "domain"):
+        raise ValueError("view must be 'stakeholder' or 'domain'")
 
 
 class BusinessModel(BaseModel):
@@ -80,6 +86,15 @@ class EvidenceAssessment(BusinessModel):
         return self
 
 
+class BusinessViewFinding(BusinessModel):
+    topic: Literal[
+        "customer_buyer", "user", "supplier", "conflicts", "cost_burden",
+        "application", "deployment", "constraints",
+    ]
+    text: Text
+    source_ids: list[Text] = Field(min_length=1)
+
+
 class BusinessAnalysis(BusinessModel):
     commercialization_stage: Stage
     stage_reason: Text
@@ -91,6 +106,8 @@ class BusinessAnalysis(BusinessModel):
     evidence_assessment: list[EvidenceAssessment]
     information_gaps: list[Text]
     summary: Text
+    view_findings: list[BusinessViewFinding] = Field(default_factory=list)
+    view_missing_items: list[Text] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_stage(self):

@@ -67,6 +67,8 @@ return {
 
 guard는 최상위 쓰기 키와 하위 Agent의 analyses·node_status·node_errors 관점 키를 검사한다. analyses 키와 결과의 view도 일치해야 한다. 입력 읽기 제한과 State 내부 객체의 직접 변경까지 강제하지는 않는다. 입력 State를 직접 수정하지 않는다.
 
+사업성 기능의 stakeholder·domain 호출과 필수 topic·공통 출력 변환은 [BUSINESS_VIEWS.md](BUSINESS_VIEWS.md)를 따른다. 두 관점은 공통 business_analysis 필드에 동시에 쓰지 않는다.
+
 
 ## 평가 재조사와 횟수 기준
 
