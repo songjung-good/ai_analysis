@@ -12,7 +12,7 @@ from ai_investment.agents.decision import run
 from ai_investment.contracts import guard_node
 from ai_investment.graph import AgentNodes, build_graph
 from ai_investment.models import Evidence
-from ai_investment.scoring import WEIGHTS, calculate_score
+from ai_investment.scoring import WEIGHTS, calculate_score, provisional_score, score_band
 from ai_investment.state import create_initial_state
 
 
@@ -60,6 +60,18 @@ def state():
 
 
 class DecisionTests(unittest.TestCase):
+    def test_provisional_score_reweights_known_items_without_changing_decision(self):
+        scores = {"technology": 3.0, "competition": 3.0, "traction": 4.0}
+        self.assertIsNone(calculate_score(scores).weighted_score)
+        self.assertEqual(calculate_score(scores).decision, "hold")
+        value, coverage = provisional_score(scores)
+        self.assertAlmostEqual(coverage, 0.35)
+        self.assertAlmostEqual(value, (3 * 0.15 + 3 * 0.10 + 4 * 0.10) / 0.35)
+        self.assertEqual(score_band(value), "conditional")
+        self.assertEqual(provisional_score({}), (None, 0.0))
+        boundary = calculate_score({key: 3.0 for key in ("team", "market", "technology", "competition")})
+        self.assertEqual((boundary.weighted_score, boundary.decision), (3.0, "conditional"))
+
     def test_thresholds_ownership_and_one_history_delta(self):
         for score, expected in ((4, "invest"), (3, "conditional"), (2, "hold")):
             with self.subTest(score=score):
@@ -96,21 +108,37 @@ class DecisionTests(unittest.TestCase):
         output = assessment()
         output["investment_terms"] = {"score": None, "reason": "거래 조건 미공개", "source_ids": []}
         result = run(state(), model=FakeModel(output=output))
-        self.assertEqual(result["decision"], "hold")
-        self.assertIsNone(result["investment_score"])
+        # 확인 항목 가중치 90% ≥ 60%: 미확인 항목을 채우지 않고 재정규화한 점수를 낸다.
+        self.assertIsNotNone(result["investment_score"])
         self.assertNotIn("investment_terms", result["scores"])
         self.assertIn("거래 조건 미공개", result["decision_reason"])
+        self.assertIn("재정규화", result["decision_reason"])
+        for key in ("team", "market"):
+            output[key] = {"score": None, "reason": "근거 없음", "source_ids": []}
+        result = run(state(), model=FakeModel(output=output))
+        self.assertEqual(result["decision"], "hold")  # 35% < 60%
+        self.assertIsNone(result["investment_score"])
 
     def test_risk_and_critical_information_override_high_score(self):
         for override in (
             {"blocking_risks": [{"category": "safety", "reason": "출처로 확인된 중대한 안전 문제", "source_ids": ["current"]}]},
-            {"critical_information_gaps": ["핵심 계약 내용 상충"]},
         ):
             with self.subTest(override=override):
                 output = {**assessment(5), **override}
                 result = run(state(), model=FakeModel(output=output))
                 self.assertEqual(result["decision"], "hold")
                 self.assertEqual(result["investment_score"], 5)
+
+    def test_information_gaps_are_recorded_without_forcing_hold(self):
+        for override in (
+            {"critical_information_gaps": ["핵심 계약 내용 상충"]},
+            {"blocking_risks": [{"category": "legal", "reason": "인증 로드맵 확인 필요", "source_ids": ["current"]}]},
+        ):
+            with self.subTest(override=override):
+                result = run(state(), model=FakeModel(output={**assessment(5), **override}))
+                self.assertEqual(result["decision"], "invest")
+                self.assertEqual(result["evaluations"][0]["blocking_risks"], [])
+                self.assertTrue(result["evaluations"][0]["missing_information"])
 
     def test_foreign_or_nonexistent_citations_fail(self):
         for source in ("previous", "invented"):

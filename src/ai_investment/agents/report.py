@@ -15,10 +15,11 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..utils.llm import reasoning_kwargs
 from ..contracts import NodeResult
 from ..control import MAX_REPORT_FAILURES
 from ..models import Evidence
-from ..scoring import WEIGHTS
+from ..scoring import WEIGHTS, provisional_score, score_band
 from ..state import GraphState, VIEWS
 from ..utils.logger import invoke_logged, monitor
 from ..tools import tools_for
@@ -31,6 +32,8 @@ VIEW_HEADINGS = {
     "stakeholder": "이해관계자 관점", "domain": "도메인 적용 관점",
 }
 DECISION_NAMES = {"invest": "투자 검토 적합", "conditional": "조건부 검토", "hold": "보류"}
+SCORE_LABELS = {"team": "창업자·팀", "market": "시장성", "technology": "제품·기술력",
+                "competition": "경쟁 우위", "traction": "실적", "investment_terms": "투자 조건"}
 
 
 class ReportParagraph(BaseModel):
@@ -169,7 +172,7 @@ def _write_report_draft(state: GraphState) -> ReportDraft:
         "feedback": verdict.get("feedback", []), "evaluation_items": verdict.get("items", {}),
         "research_hints": verdict.get("research_hints", {}),
     }
-    model = ChatOpenAI(model=model_name, temperature=0, timeout=60, max_retries=2).with_structured_output(
+    model = ChatOpenAI(model=model_name, timeout=60, max_retries=2, **reasoning_kwargs()).with_structured_output(
         ReportDraft, method="json_schema"
     )
     messages = [("system", prompt), ("human", json.dumps(payload, ensure_ascii=False, default=_json_value))]
@@ -177,7 +180,14 @@ def _write_report_draft(state: GraphState) -> ReportDraft:
         result = invoke_logged(model, messages, label="보고서 본문 작성", attempt=attempt + 1,
                                schema="ReportDraft", timeout_seconds=60, sdk_max_retries=2)
         draft = result if isinstance(result, ReportDraft) else ReportDraft.model_validate(result)
-        refs = _used_references(draft, state)
+        try:
+            refs = _used_references(draft, state)
+        except ValueError as exc:
+            # 모델이 ID를 이어 붙이는 등 잘못 인용하면 한 번만 재요청한다.
+            if attempt == 1:
+                raise
+            messages.append(("human", f"{exc}. source_ids 배열의 각 원소에는 context.references의 source_id 하나만 그대로 넣어라."))
+            continue
         if refs or not payload["context"]["references"]:
             return draft
         if attempt == 0:
@@ -374,18 +384,26 @@ def render_report_pdf(draft: ReportDraft, state: GraphState, references: list[Ev
     table([["투자 판단\n" + DECISION_NAMES.get(state.get("decision"), "판단 자료 부족"),
             "가중 점수\n" + shown],
            ["분석 상태: " + analysis_status, "보고서 품질: " + quality]], [width * 0.56, width * 0.44], header=False)
+    if startup:
+        provisional, coverage = provisional_score(state.get("scores") or {})
+        missing = [SCORE_LABELS[key] for key in WEIGHTS if key not in (state.get("scores") or {})]
+        if score is not None and missing:
+            text(f"가중 점수는 확인된 항목(가중치 {coverage:.0%})만 재정규화한 값입니다. "
+                 f"미확인: {', '.join(missing)}.", small)
+        if score is None and provisional is not None:
+            text(f"잠정 점수(참고): {provisional:.2f} / 5.00 — 확인된 항목 가중치 {coverage:.0%}만 반영. "
+                 f"미확인 항목({', '.join(missing)})이 확인되면 "
+                 f"'{DECISION_NAMES.get(score_band(provisional), score_band(provisional))}' 구간입니다.", small)
     text("한눈에 보는 핵심", heading)
     for item in draft.summary:
         text(cited(item), compact)
     if startup:
-        labels = {"team": "창업자·팀", "market": "시장성", "technology": "제품·기술력",
-                  "competition": "경쟁 우위", "traction": "실적", "investment_terms": "투자 조건"}
         text("투자 평가 점수", heading)
         rows = [["평가 항목", "반영 비중", "점수"]]
         for key, weight in WEIGHTS.items():
             value = (state.get("scores") or {}).get(key)
             value_text = f"{value:g} / 5" if isinstance(value, (int, float)) and not isinstance(value, bool) else "정보 부족"
-            rows.append([labels[key], f"{weight:.0%}", value_text])
+            rows.append([SCORE_LABELS[key], f"{weight:.0%}", value_text])
         table(rows, [width * 0.5, width * 0.23, width * 0.27])
     text("우선 확인할 불확실성", heading)
     for item in draft.risks:

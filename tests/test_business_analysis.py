@@ -71,6 +71,17 @@ class BusinessAnalysisTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "model unavailable"):
             analyze_business({}, [], model=FakeModel(RuntimeError("model unavailable")))
 
+    def test_missing_required_fields_are_retried_once_with_error(self):
+        class SequenceModel(FakeModel):
+            def invoke(self, messages):
+                self.messages = list(messages)
+                return self.output.pop(0)
+
+        model = SequenceModel([{"summary": "불완전"}, unknown_output()])
+        result = analyze_business({}, [], model=model)
+        self.assertEqual(result.commercialization_stage, "unknown")
+        self.assertIn("customer_cases", model.messages[-1][1])
+
     def test_citation_prefix_repair_is_unambiguous_and_does_not_change_gap_text(self):
         output = unknown_output()
         output.update(

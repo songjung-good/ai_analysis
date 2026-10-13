@@ -30,6 +30,7 @@ from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel, Field
 
+from ..utils.llm import reasoning_kwargs
 from ..contracts import NodeResult
 from ..models import Evidence
 from ..orchestration.decision_log import log_decision
@@ -198,7 +199,7 @@ def _llm():
     model = os.getenv("OPENAI_MODEL")
     if not model:
         raise TechSetupError("OPENAI_MODEL 환경변수를 설정하세요")
-    return ChatOpenAI(model=model, temperature=0)
+    return ChatOpenAI(model=model, **reasoning_kwargs())
 
 
 def _structured(schema: type[T], prompt: str) -> T:
@@ -233,7 +234,7 @@ def generate_queries(startup: Mapping[str, Any], profile: Mapping[str, Any]) -> 
         QueryPlan,
         QUERY_PROMPT.format(n=MAX_QUERIES, startup=_dump(startup), profile=_dump(profile)),
     )
-    return _clean_queries(plan.queries)
+    return _clean_queries(plan.queries, fallback=_default_queries(startup, profile))
 
 
 def retrieve(queries: Sequence[str]) -> list[Evidence]:
@@ -270,7 +271,7 @@ def rewrite_query(queries: Sequence[str], missing: Sequence[str]) -> list[str]:
             missing="\n".join(f"- {m}" for m in missing) or "- (미상)",
         ),
     )
-    return _clean_queries(plan.queries)
+    return _clean_queries(plan.queries, fallback=queries)
 
 
 def web_fallback(
@@ -505,9 +506,9 @@ def run(state: GraphState) -> NodeResult:
             crag = run_crag(startup, profile)
         evidence = _dedupe([*_previous_evidence(state), *crag.evidence])
         analysis, cited = analyze(startup, profile, evidence, crag.missing)
-    except (ValueError, PermissionError, TechSetupError):
-        raise  # 입력·권한·설정 오류는 재시도해도 같으므로 즉시 중단
-    except Exception as exc:  # 외부 API·네트워크 오류 → Supervisor가 재시도 판단
+    except (PermissionError, TechSetupError):
+        raise  # 권한·설정 오류는 재시도해도 같으므로 즉시 중단
+    except Exception as exc:  # 외부 API·네트워크·LLM 출력 오류 → Supervisor가 재시도 판단
         error = f"{type(exc).__name__}: {exc}"
         previous = (state.get("analyses") or {}).get(VIEW)
         return {
@@ -542,8 +543,23 @@ def _dump(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2, default=str)
 
 
-def _clean_queries(queries: Iterable[str]) -> list[str]:
+def _default_queries(startup: Mapping[str, Any], profile: Mapping[str, Any]) -> list[str]:
+    """LLM이 질의를 비워 보낼 때 쓰는 기업·제품·세부 분야 기반 기본 질의."""
+    name = str(startup.get("name") or "").strip()
+    product = str(startup.get("product") or "").strip()
+    subdomain = str(profile.get("subdomain") or "").strip()
+    return [q for q in (
+        f"{name} {product}".strip(),
+        f"{subdomain or product or name} 로봇 기술 성숙도 한계",
+        "피지컬 AI 로봇 파운데이션 모델 VLA 현장 적용",
+    ) if q]
+
+
+def _clean_queries(queries: Iterable[str], fallback: Iterable[str] = ()) -> list[str]:
     cleaned = [q.strip() for q in queries if q and q.strip()]
+    if not cleaned:
+        # 소형 모델이 빈 목록을 반환해도 노드 전체를 실패시키지 않는다.
+        cleaned = [q.strip() for q in fallback if q and q.strip()]
     if not cleaned:
         raise ValueError("LLM returned no search queries")
     return list(dict.fromkeys(cleaned))[:MAX_QUERIES]

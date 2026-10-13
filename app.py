@@ -25,6 +25,7 @@ from ai_investment.agents.market import run_view as market_view
 from ai_investment.agents.report import finalize_report
 from ai_investment.orchestration.evaluator import run as evaluate_report
 from ai_investment.orchestration.supervisor import supervisor
+from ai_investment.scoring import WEIGHTS, provisional_score, score_band
 from ai_investment.state import create_initial_state
 from ai_investment.utils.logger import setup_logging, monitor
 
@@ -167,10 +168,16 @@ def main():
     verdict = final_state.get("eval_result") or {}
     print(f"보고서 품질: {'통과' if verdict.get('passed') else '미통과'}")
     if "decision" in final_state:
-        print(
-            f"📊 최종 투자 판단: {final_state.get('decision')} "
-            f"(점수: {final_state.get('investment_score')})"
-        )
+        score = final_state.get("investment_score")
+        shown = f"{score:.2f} / 5" if isinstance(score, (int, float)) else "미산정"
+        print(f"📊 최종 투자 판단: {final_state.get('decision')} (점수: {shown})")
+        provisional, coverage = provisional_score(final_state.get("scores") or {})
+        if final_state.get("investment_score") is None and provisional is not None:
+            missing = [key for key in WEIGHTS if key not in (final_state.get("scores") or {})]
+            print(
+                f"   잠정 점수(참고): {provisional:.2f} / 5 — 확인 항목 {coverage:.0%}만 반영, "
+                f"미확인 {', '.join(missing)} 확인 시 '{score_band(provisional)}' 구간"
+            )
     print("=" * 60)
     return final_state
 

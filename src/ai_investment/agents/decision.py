@@ -6,9 +6,10 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from ..utils.llm import reasoning_kwargs
 from ..contracts import NodeResult
 from ..models import Evidence
-from ..scoring import WEIGHTS, calculate_score
+from ..scoring import WEIGHTS, calculate_score, provisional_score, score_band
 from ..state import GraphState
 from ..utils.logger import invoke_logged, monitor
 from ..tools import tools_for
@@ -46,7 +47,10 @@ investment_terms: 1=확인된 불리한 조건, 3=단계·가치·거래 조건�
 - 4점은 3점 기준을 충족하고 추가 강점이 확인되지만 5점 기준까지 충족하지 못하는 경우다.
 - 2점·4점을 선택하면 어떤 인접 기준을 충족하고 어떤 부분이 부족한지 reason에 설명한다.
 - 5점은 해당 항목의 강한 근거가 있을 때만 부여한다. 낙관적 전망만으로 최고점을 주지 않는다.
-- 판단에 필요한 정보가 없으면 정수 점수를 강제로 선택하지 않고 null로 남긴다.
+- 해당 항목과 관련된 근거가 전혀 없을 때만 null로 남긴다.
+- 근거가 일부라도 있으면 null이 아니라 확인된 범위만큼 낮게(주로 1~3) 채점하고 부족한 점을 reason의 한계에 적는다.
+  예: PoC·시범 운영만 확인 → traction 2, 시장 규모 자료와 대상 고객이 일부 연결 → market 2~3,
+  경쟁사·대체 기술과 차별점 주장이 있음 → competition 2~3, 창업자 1명 이상의 관련 경력 확인 → team 2~3.
 
 각 항목의 reason은 다음 순서로 한국어 문장으로 작성한다:
 1. 확인된 사실: 제공된 출처에서 확인한 사실과 적용 기업·제품·고객·시점.
@@ -61,10 +65,10 @@ source_ids에는 reason의 사실을 직접 뒷받침하는 제공된 출처만 
 - team: 이름·직함·팀 명단만 있으면 전문성이나 실행력을 채점하지 않는다.
   관련 경력·검증된 실행 사례 등 평가 가능한 근거가 필요하다.
 - market: 업계 전체 성장률만으로 현재 제품의 접근 가능 시장·고객 수요를 판단하지 않는다.
-  대상 고객·문제와 연결할 근거가 없으면 null이다.
+  대상 고객·문제와 전혀 연결할 수 없으면 null이고, 일부라도 연결되면 낮게 채점한다.
 - technology: 업계 일반 연구나 기업의 기술 소개만으로 현장 성능을 확정하지 않는다.
   확인 가능한 기업 기술·구현 근거 범위에서 평가하고 성능 미검증을 한계로 적는다.
-- competition: 경쟁사 목록만 있고 비교 근거가 없으면 차별성과 진입장벽을 채점하지 않는다.
+- competition: 경쟁사 목록만 있고 비교 근거가 없으면 높은 점수를 주지 않는다(2점 이하). 경쟁 관련 자료가 전혀 없을 때만 null이다.
 - traction: 고객 로고·파트너십만으로 유료 계약·매출·상용 운영을 추정하지 않는다.
   확인된 단계의 근거로 평가하며, 실적 근거가 전혀 없으면 null이다.
 - investment_terms: 투자 단계나 조달 금액만으로 투자 조건의 유불리를 채점하지 않는다.
@@ -87,6 +91,11 @@ source_ids에는 reason의 사실을 직접 뒷받침하는 제공된 출처만 
 단일 주장, 미확인 수치, 알려진 분석 한계를 반영하고 여러 항목에 같은 문구를 복사해 채점하지 않는다.
 제공된 출처 ID만 사용하고 출처가 해당 주장을 실제 지지하는지 확인한다.
 중대한 법률·안전 위험은 blocking_risks에 범주·이유·출처를 기록한다.
+blocking_risks는 소송·규제 위반·제재·인증 취소·사고처럼 발췌문에 실제로 기록된 사건이나 위반만 해당한다.
+업계 일반의 안전 과제, 고객·매출·계약 정보 미공개, 인증 정보 미확인은 blocking_risks가 아니다.
+이런 내용은 해당 항목 reason이나 critical_information_gaps에 적는다.
+critical_information_gaps에는 투자 판단을 뒤집을 수 있는 핵심 공백만 3개 이내로 적는다.
+점수가 null인 항목의 사유는 reason에 이미 있으므로 critical_information_gaps에 반복하지 않는다.
 인증 정보 미공개를 위법으로 단정하지 않는다. 핵심 정보 부족은 critical_information_gaps에 기록한다.
 최종 점수·투자 결정은 출력하지 않고 InvestmentAssessment 형식으로만 반환한다.
 
@@ -94,6 +103,9 @@ source_ids에는 reason의 사실을 직접 뒷받침하는 제공된 출처만 
 인용 ID만 존재하는 것이 아니라 발췌문이 사실을 지지하는가? 정보 부재를 낮은 점수로
 대체하거나 동일 성과를 중복 가점하지 않았는가? 미해소 모순과 채점 불가 항목을 남겼는가?
 """
+
+
+_GAP_WORDS = ("확인 필요", "미공개", "미확인", "공개되지", "확인되지", "로드맵")
 
 
 def _source_ids(value: object) -> set[str]:
@@ -120,7 +132,7 @@ def _model():
     missing = [key for key in ("OPENAI_API_KEY", "OPENAI_MODEL") if not os.getenv(key, "").strip()]
     if missing:
         raise ValueError(f"Missing environment variables: {', '.join(missing)}")
-    return ChatOpenAI(model=os.environ["OPENAI_MODEL"], timeout=60, max_retries=0)
+    return ChatOpenAI(model=os.environ["OPENAI_MODEL"], timeout=60, max_retries=0, **reasoning_kwargs())
 
 
 def _update(name: str, scores: dict[str, float], reason: str, *, force_hold=False,
@@ -128,7 +140,15 @@ def _update(name: str, scores: dict[str, float], reason: str, *, force_hold=Fals
     with monitor("scoring", label="가중 점수·투자 안전 조건 판정") as metrics:
         result = calculate_score(scores, force_hold=force_hold)
         metrics["decision"] = result.decision
-    reason = f"최종 판단: {result.decision}; 가중 점수: {result.weighted_score}\n{reason}"
+    header = f"최종 판단: {result.decision}; 가중 점수: {result.weighted_score}"
+    provisional, coverage = provisional_score(result.scores)
+    if result.weighted_score is not None and result.missing_fields:
+        header += f" (확인 항목 가중치 {result.coverage:.0%} 기준 재정규화, 미확인: {', '.join(result.missing_fields)})"
+    elif result.weighted_score is None and provisional is not None:
+        # 공식 판단은 보류로 두고, 확인된 항목만의 참고 점수를 함께 남긴다.
+        header += (f"; 잠정 점수(확인 항목 {coverage:.0%}만 반영): {provisional:.2f}"
+                   f" → 미확인 항목이 확인되면 '{score_band(provisional)}' 구간")
+    reason = f"{header}\n{reason}"
     evaluation = {
         "startup_name": name, "score": result.weighted_score,
         "decision": result.decision, "reason": reason,
@@ -178,11 +198,8 @@ def run(state: GraphState, *, model: Any = None) -> NodeResult:
         raise ValueError("Analysis cites unavailable source IDs: " + ", ".join(sorted(current_ids - available)))
     context["evidence"] = [item.model_dump() for item in references if item.source_id in current_ids]
     llm = model if model is not None else _model()
-    structured = llm.with_structured_output(InvestmentAssessment, method="function_calling", strict=False)
-    output = invoke_logged(structured, [
-        ("system", SYSTEM_PROMPT), ("human", json.dumps(context, ensure_ascii=False)),
-    ], label="투자 평가 구조화 응답", model=llm, schema="InvestmentAssessment",
-        evidence_count=len(context["evidence"]))
+    structured = llm.with_structured_output(InvestmentAssessment, method="json_schema", strict=True)
+    messages = [("system", SYSTEM_PROMPT), ("human", json.dumps(context, ensure_ascii=False))]
 
     def resolve_sid(sid: str, ref_set: set[str]) -> str:
         s = sid.strip()
@@ -200,19 +217,38 @@ def run(state: GraphState, *, model: Any = None) -> NodeResult:
             return [resolve_sid(i, ref_set) if isinstance(i, str) else walk_fix(i, ref_set) for i in obj]
         return obj
 
-    raw = output.model_dump() if hasattr(output, "model_dump") else output
-    normalized = walk_fix(raw, current_ids)
-    assessment = InvestmentAssessment.model_validate(normalized)
-    cited = _source_ids(assessment.model_dump())
-    if cited - current_ids:
-        raise ValueError("Assessment cites unavailable current source IDs: " + ", ".join(sorted(cited - current_ids)))
+    for attempt in range(3):
+        try:
+            # 소형 모델이 깨진 JSON·누락 필드를 내면 오류를 알려 재요청한다(ValidationError 포함).
+            output = invoke_logged(structured, messages, label="투자 평가 구조화 응답", model=llm,
+                                   attempt=attempt + 1, schema="InvestmentAssessment",
+                                   evidence_count=len(context["evidence"]))
+            raw = output.model_dump() if hasattr(output, "model_dump") else output
+            assessment = InvestmentAssessment.model_validate(walk_fix(raw, current_ids))
+            cited = _source_ids(assessment.model_dump())
+            if cited - current_ids:
+                raise ValueError("Assessment cites unavailable current source IDs: "
+                                 + ", ".join(sorted(cited - current_ids)))
+            break
+        except ValueError as exc:
+            if attempt == 2:
+                raise
+            messages.append(("human", "6개 항목(team, market, technology, competition, traction, "
+                                      "investment_terms) 모두 score·reason·source_ids를 갖춘 올바른 형식으로 "
+                                      f"다시 반환하라. 오류: {str(exc)[:1500]}"))
 
     details = {key: getattr(assessment, key).model_dump() for key in WEIGHTS}
     scores = {key: item["score"] for key, item in details.items() if item["score"] is not None}
     gaps = [f"평가 정보 부족: {key} — {item['reason']}" for key, item in details.items() if item["score"] is None]
     gaps.extend(assessment.critical_information_gaps)
-    risks = [item.model_dump() for item in assessment.blocking_risks]
-    force_hold = bool(risks or gaps)
+    risks = []
+    for item in assessment.blocking_risks:
+        # 정보 미공개·확인 필요는 실제 위험 사건이 아니므로 보류 강제 대신 정보 부족으로 기록한다.
+        if any(word in item.reason for word in _GAP_WORDS):
+            gaps.append(f"정보 부족({item.category}): {item.reason}")
+        else:
+            risks.append(item.model_dump())
+    force_hold = bool(risks)
     lines = [f"{key}: {item['score']} — {item['reason']} (출처: {', '.join(item['source_ids'])})"
              for key, item in details.items()]
     lines.extend(f"필수 보류: {item['category']} — {item['reason']}" for item in risks)

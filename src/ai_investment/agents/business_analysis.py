@@ -5,6 +5,9 @@ import os
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
+from ..utils.llm import reasoning_kwargs
 from ..models import Evidence
 from ..state import GraphState
 from ..utils.logger import invoke_logged
@@ -133,7 +136,7 @@ def create_analysis_model():
     missing = [key for key in ("OPENAI_API_KEY", "OPENAI_MODEL") if not os.getenv(key, "").strip()]
     if missing:
         raise ValueError(f"Missing environment variables: {', '.join(missing)}")
-    return ChatOpenAI(model=os.environ["OPENAI_MODEL"], timeout=60, max_retries=0)
+    return ChatOpenAI(model=os.environ["OPENAI_MODEL"], timeout=60, max_retries=0, **reasoning_kwargs())
 
 
 def cited_source_ids(result: BusinessAnalysis) -> set[str]:
@@ -217,19 +220,30 @@ def analyze_business(
 핵심 불확실성은 view_missing_items에 남긴다.
 """
     model = model if model is not None else create_analysis_model()
-    # Pydantic constraints are validated locally after function-call parsing.
+    # Strict structured output guarantees the JSON shape; Pydantic constraints are still validated locally.
     structured = model.with_structured_output(
-        BusinessAnalysis, method="function_calling", strict=False
+        BusinessAnalysis, method="json_schema", strict=True
     )
-    output = invoke_logged(structured, [
+    messages = [
         ("system", prompt),
         ("human", json.dumps(payload, ensure_ascii=False)),
-    ], label="사업 관점 구조화 분석", model=model, schema="BusinessAnalysis", evidence_count=len(evidence))
+    ]
     available = {item.source_id for item in evidence}
-    raw = output.model_dump() if hasattr(output, "model_dump") else output
-    normalized = _normalize_citations(raw, available)
-    result = BusinessAnalysis.model_validate(normalized)
-    validate_citations(result, evidence)
+    for attempt in range(2):
+        output = invoke_logged(structured, messages, label="사업 관점 구조화 분석", model=model,
+                               attempt=attempt + 1, schema="BusinessAnalysis", evidence_count=len(evidence))
+        raw = output.model_dump() if hasattr(output, "model_dump") else output
+        try:
+            result = BusinessAnalysis.model_validate(_normalize_citations(raw, available))
+            validate_citations(result, evidence)
+            break
+        except (ValidationError, ValueError) as exc:
+            # 소형 모델이 필수 목록 필드를 빠뜨리거나 ID를 깨뜨리면 오류를 알려 한 번만 재요청한다.
+            if attempt == 1:
+                raise
+            messages.append(("human", "모든 필수 필드를 포함하고(근거가 없으면 빈 배열), "
+                                      "source_ids에는 다음 ID 중에서만 골라 다시 반환하라. 목록에 없는 ID를 쓰면 "
+                                      f"그 주장을 빼라. 허용 ID: {sorted(available)}. 오류: {exc}"))
     return result.model_copy(update={
         "information_gaps": list(dict.fromkeys((*information_gaps, *result.information_gaps)))
     })

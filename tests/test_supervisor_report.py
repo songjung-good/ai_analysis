@@ -162,7 +162,7 @@ class SupervisorReportTests(unittest.TestCase):
         self.assertEqual(payload["feedback"], ["점수 근거 보완"])
         self.assertEqual(payload["previous_draft"], self.state["report_draft"])
         self.assertEqual(payload["context"]["analyses"], self.state["analyses"])
-        self.assertEqual(model.call_args.kwargs["temperature"], 0)
+        self.assertEqual(model.call_args.kwargs["reasoning_effort"], "low")
 
     def test_research_result_and_feedback_are_used_without_candidate_switch(self):
         from langgraph.graph import StateGraph, START, END

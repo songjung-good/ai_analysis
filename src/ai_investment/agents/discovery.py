@@ -19,6 +19,7 @@ import logging
 import os
 import re
 import time
+import logging
 import unicodedata
 from collections.abc import Callable
 from datetime import date
@@ -27,6 +28,7 @@ from typing import Any, Literal, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from urllib.parse import urlparse
 
+from ..utils.llm import reasoning_kwargs
 from ..contracts import NodeResult
 from ..models import Evidence
 from ..state import GraphState, Startup
@@ -107,6 +109,8 @@ documented deployment, paid sales or operational use. A target market, logo, pla
 MOU or investment announcement alone is not an actual application; use null when unknown.
 technical_evidence confirms company-specific public specifications, technical documentation,
 research or performance/operational validation. Generic robotics news is insufficient.
+For each team member, write "Name (role; relevant career, degree or prior company)" using only
+cited evidence; omit the parenthetical details that the evidence does not state.
 Write descriptions in Korean, preserving company and person names.
 For proposal extraction, return each company once, merging aliases, and follow the limit.
 Prioritize companies with accessible technical materials AND actual customer/application
@@ -144,6 +148,32 @@ def _unique_evidence(items: list[Evidence]) -> list[Evidence]:
             )
         unique[item.source_id] = item
     return list(unique.values())
+
+
+def _repair_citations(value: Any, evidence: list[Evidence]) -> Any:
+    """Map unique ID prefixes to full IDs and drop IDs absent from the evidence.
+
+    A fact whose citations are all dropped still fails _validate_citations, so invented
+    IDs are never accepted; only harmless truncation or noise is tolerated.
+    """
+    available = {item.source_id for item in evidence}
+
+    def resolve(sid: str) -> str | None:
+        sid = sid.strip()
+        if sid in available:
+            return sid
+        matches = [full for full in available if len(sid) >= 8 and full.startswith(sid)]
+        return matches[0] if len(matches) == 1 else None
+
+    if isinstance(value, dict):
+        return {
+            key: [r for sid in item if isinstance(sid, str) and (r := resolve(sid))]
+            if key == "source_ids" and isinstance(item, list) else _repair_citations(item, evidence)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_repair_citations(item, evidence) for item in value]
+    return value
 
 
 def _validate_citations(result: BaseModel, evidence: list[Evidence]) -> None:
@@ -234,7 +264,8 @@ class DiscoveryAgent:
                              input_chars=sum(len(text) for _, text in messages),
                              evidence_count=len(evidence)) as metrics:
                     result = model.invoke(messages)
-                    parsed = result if isinstance(result, schema) else schema.model_validate(result)
+                    raw = result.model_dump() if isinstance(result, BaseModel) else result
+                    parsed = schema.model_validate(_repair_citations(raw, evidence))
                     _validate_citations(parsed, evidence)
                     if isinstance(parsed, _Proposals):
                         metrics["result_count"] = len(parsed.companies)
@@ -275,7 +306,8 @@ class DiscoveryAgent:
         if not pool and not criteria.candidate_names:
             return empty
 
-        proposal_limit = min(criteria.candidate_limit * 2, 20)
+        # 후보가 적을 때도 검증 탈락 몇 번으로 빈 결과가 되지 않게 최소 4개까지 시도한다.
+        proposal_limit = min(max(criteria.candidate_limit * 2, 4), 20)
         if criteria.candidate_names:
             proposals = _Proposals(companies=[
                 _SourcedText(value=name, source_ids=[]) for name in criteria.candidate_names
@@ -302,16 +334,19 @@ class DiscoveryAgent:
             # Start with the cited discovery evidence, then check both product and
             # current ownership/funding; a broad search alone is insufficient.
             evidence = [item for item in pool if item.source_id in proposed.source_ids]
+            # 팀 점수는 이름만으로 채점하지 않으므로 창업자 경력 근거도 함께 찾는다.
             verify_queries = (
                 f'"{name}" 로봇 제품 대표 투자',
                 f'"{name}" 스타트업 투자 유치 시리즈',
                 f'"{name}" 로봇 기술 사양 성능 검증',
                 f'"{name}" 고객 도입 운영 납품 판매 사례',
+                f'"{name}" 대표 창업자 경력 출신',
             ) if is_korean else (
                 f'"{name}" official company product founders funding',
                 f'"{name}" {region} startup funding round',
                 f'"{name}" robotics technical specifications validation',
                 f'"{name}" customer deployment operational sales case study',
+                f'"{name}" founder CEO background experience',
             )
             for query_index, query in enumerate(verify_queries, 1):
                 evidence.extend(self._search(query, target_name=name, query_index=query_index,
@@ -323,11 +358,23 @@ class DiscoveryAgent:
                     "trace_id": state.get("trace_id"),
                 })
                 continue
-            verified = self._extract(_Verification, {
-                "task": "Verify this company's current eligibility, technical data and actual customer applications.",
-                "company": name, "domain": domain, "criteria": criteria.model_dump(),
-            }, evidence)
-            checks = [verified.domain_match, verified.private_company, verified.no_completed_exit,
+            try:
+                verified = self._extract(_Verification, {
+                    "task": "Verify this company's current eligibility, technical data and actual customer applications.",
+                    "company": name, "domain": domain, "criteria": criteria.model_dump(),
+                }, evidence)
+            except ValueError as exc:
+                # 한 후보의 검증 응답이 계속 잘못되면 전체 실행을 멈추지 않고 다음 후보로 넘어간다.
+                logger.warning("후보 제외: %s (검증 응답 오류: %s)", name, exc.__cause__ or exc, extra={
+                    "event": "candidate_rejected", "target_name": name,
+                    "trace_id": state.get("trace_id"),
+                })
+                continue
+            no_exit = verified.no_completed_exit
+            if no_exit.confirmed is None and verified.private_company.confirmed is True:
+                # 프롬프트의 추정 규칙을 코드로 보장: 비상장으로 확인되고 엑시트 근거가 없으면 미엑시트로 본다.
+                no_exit = verified.private_company
+            checks = [verified.domain_match, verified.private_company, no_exit,
                       verified.technical_evidence]
             if criteria.region:
                 checks.append(verified.region_match)
@@ -398,5 +445,5 @@ def run(state: GraphState) -> NodeResult:
     missing = [key for key in required if not os.getenv(key, "").strip()]
     if missing:
         raise ValueError("Missing environment variables: " + ", ".join(missing))
-    llm = ChatOpenAI(model=os.environ["OPENAI_MODEL"], timeout=60, max_retries=2)
+    llm = ChatOpenAI(model=os.environ["OPENAI_MODEL"], timeout=60, max_retries=2, **reasoning_kwargs())
     return DiscoveryAgent(llm=llm).run(state)

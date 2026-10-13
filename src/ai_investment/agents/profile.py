@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..utils.llm import reasoning_kwargs
 from ..contracts import NodeResult
 from ..state import GraphState, Startup
 from ..tools import tools_for
@@ -58,7 +59,7 @@ def _build_classifier():
     model = os.getenv("OPENAI_MODEL")
     if not model:
         raise RuntimeError("OPENAI_MODEL is not set. Configure it in the environment or .env.")
-    return ChatOpenAI(model=model, temperature=0).with_structured_output(
+    return ChatOpenAI(model=model, **reasoning_kwargs()).with_structured_output(
         CustomerProfile
     )
 

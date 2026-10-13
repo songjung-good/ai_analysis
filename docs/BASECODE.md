@@ -102,7 +102,7 @@
 
 `decision_models.py`의 `InvestmentAssessment`는 항목 6개의 점수(1~5 또는 `None`), 이유, 출처 ID와 중대한 법률·안전 위험, 핵심 정보 부족을 표현한다. 숫자 점수에는 출처가 필수다. 실제로 출처가 주장을 뒷받침하는지는 모델 및 원문 대조로 별도 확인해야 한다.
 
-`calculate_score`가 가중합을 계산한다. 4.0 이상 `invest`, 3.0 이상 4.0 미만 `conditional`, 나머지는 `hold`다. 점수 누락이면 총점 `None`과 `hold`, 중대한 위험 또는 핵심 정보 부족이면 점수와 무관하게 `hold`다. 판정은 반올림 전 점수로 수행하며 표시할 때만 반올림한다.
+`calculate_score`가 가중합을 계산한다. 4.0 이상 `invest`, 3.0 이상 4.0 미만 `conditional`, 나머지는 `hold`다. 점수가 확인된 항목의 가중치 합이 60%(`MIN_COVERAGE`) 이상이면 확인된 항목만 재정규화해 총점을 내고(미확인 항목은 추정하지 않음), 60% 미만이면 총점 `None`과 `hold`다. 중대한 법률·안전 위험은 점수와 무관하게 `hold`다. 핵심 정보 부족은 판단 근거와 보고서에 기록하되 `hold`를 강제하지 않는다. 판정은 반올림 전 점수로 수행하며 표시할 때만 반올림한다.
 
 반환 키는 `scores`, `investment_score`, `decision`, `decision_reason`, `evaluations`다. `evaluations`에는 현재 기업의 평가 1개만 반환하며 reducer가 누적한다. 기존 필수 이력 4개 키는 유지하고 `score_details`, `blocking_risks`, `missing_information`, `source_ids`를 선택 필드로 추가했다. 새로운 최상위 State 키는 없다.
 

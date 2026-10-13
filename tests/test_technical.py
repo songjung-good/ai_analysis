@@ -245,6 +245,13 @@ class TechnicalAgentTests(unittest.TestCase):
         # 직전 근거(web:7)가 분석 후보로 다시 들어가 인용 가능
         self.assertIn("web:7", {e.source_id for e in result["references"]})
 
+    def test_empty_llm_queries_fall_back_instead_of_failing(self):
+        startup = {"name": "가상로보틱스", "product": "물류 로봇"}
+        fallback = technical._default_queries(startup, {"subdomain": "물류"})
+        self.assertEqual(technical._clean_queries(["", "  "], fallback=fallback), fallback)
+        self.assertIn("가상로보틱스 물류 로봇", fallback)
+        self.assertEqual(technical._clean_queries([], fallback=["이전 질의"]), ["이전 질의"])
+
     def test_api_error_returns_failed_instead_of_raising(self):
         def broken(schema, prompt):
             raise ConnectionError("network down")
