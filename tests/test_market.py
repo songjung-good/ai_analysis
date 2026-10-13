@@ -1,3 +1,5 @@
+import contextlib
+import io
 import sys
 import unittest
 from pathlib import Path
@@ -496,7 +498,8 @@ class MarketViewTests(unittest.TestCase):
 
     def test_run_view_marks_failure_instead_of_raising(self):
         node = guard_node("market", lambda s: market.run_view(s, llm=FakeLLM(set())))
-        result = node({"selected_startup": {"name": "A"}})
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = node({"selected_startup": {"name": "A"}})
         self.assertEqual(result["analyses"]["market"]["status"], "failed")
         self.assertEqual(result["node_status"], {"market": "failed"})
         self.assertIn("ValueError", result["node_errors"]["market"])
@@ -504,7 +507,8 @@ class MarketViewTests(unittest.TestCase):
     def test_run_view_passes_market_write_contract(self):
         llm = FakeLLM({"a", "b"}, self._analysis())
         node = guard_node("market", lambda s: market.run_view(s, llm=llm, search=self._search, web=lambda q: []))
-        result = node(self.STATE)
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = node(self.STATE)
         self.assertEqual(result["node_errors"], {"market": None})
 
 

@@ -240,13 +240,15 @@ def default_judge() -> Callable[[str], JudgeOutput]:
     return lambda prompt: llm.invoke(prompt, config={"run_name": "quality_judge"})
 
 
-def run_judge(judge: Callable[[str], JudgeOutput], prompt: str, retries: int = 1) -> JudgeOutput | None:
+def run_judge(judge: Callable[[str], JudgeOutput], prompt: str, retries: int = 1,
+              trace_id: str | None = None) -> JudgeOutput | None:
     for attempt in range(retries + 1):
         try:
             out = judge(prompt)
             return out if isinstance(out, JudgeOutput) else JudgeOutput.model_validate(out)
         except Exception as exc:  # noqa: BLE001 - 파싱·호출 실패는 미달로 귀결
-            logger.warning("judge failed (attempt %d): %s", attempt + 1, exc)
+            logger.warning("judge failed trace_id=%s attempt=%d/%d: %s: %s",
+                           trace_id, attempt + 1, retries + 1, type(exc).__name__, exc)
     return None
 
 
@@ -319,7 +321,8 @@ def evaluate(state: Mapping[str, Any], *, judge: Callable[[str], JudgeOutput] | 
     hard_fail = any(not r["passed"] for r in rules.values())
     judge_out = None
     if not hard_fail:  # 규칙 확실 실패면 Judge 비용을 쓰지 않는다
-        judge_out = run_judge(judge or default_judge(), build_judge_prompt(draft, refs, rules))
+        judge_out = run_judge(judge or default_judge(), build_judge_prompt(draft, refs, rules),
+                              trace_id=state.get("trace_id"))
     verdict = combine(rules, judge_out)
     if hard_fail:  # Judge를 안 돌린 항목은 "미평가"로 표시만 바꾸고 판정 자체는 유지
         for key, rule in rules.items():

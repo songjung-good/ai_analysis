@@ -1,3 +1,5 @@
+import contextlib
+import io
 import sys
 import unittest
 from pathlib import Path
@@ -146,7 +148,10 @@ class EvaluateTests(unittest.TestCase):
         def broken(prompt):
             raise ValueError("parse error")
         judge = Calls(broken)
-        out = ev.evaluate(state(good_draft()), judge=judge)
+        with self.assertLogs(ev.logger, level="WARNING") as logs:  # 의도된 실패 로그는 검증하고 출력은 숨긴다
+            out = ev.evaluate(state(good_draft()), judge=judge)
+        self.assertEqual(len(logs.output), 2)
+        self.assertIn("trace_id=t-1 attempt=2/2: ValueError: parse error", logs.output[-1])
         self.assertEqual(judge.n, 2)  # 1회 재호출
         self.assertFalse(out["eval_result"]["passed"])
         self.assertEqual(out["eval_result"]["action"], "rewrite")
@@ -164,9 +169,10 @@ class ContractTests(unittest.TestCase):
         d = good_draft()
         d["domain"] = []
         node = guard_node("evaluator", lambda s: ev.evaluate(s, judge=judge_all(True)))
-        self.assertEqual(node(state(d))["eval_result"]["action"], "research")
-        node = guard_node("evaluator", lambda s: ev.evaluate(s, judge=judge_all(True)))
-        self.assertTrue(node(state(good_draft()))["eval_result"]["passed"])
+        with contextlib.redirect_stdout(io.StringIO()) as out:  # guard_node 진행 표시는 숨기고 검증만
+            self.assertEqual(node(state(d))["eval_result"]["action"], "research")
+            self.assertTrue(node(state(good_draft()))["eval_result"]["passed"])
+        self.assertEqual(out.getvalue().count("보고서 품질 평가 완료"), 2)
 
     def test_attempt_limit_matches_state_contract(self):
         # state.py: 최초 초안 + 보완 2회, 3번째 미달에 종료
