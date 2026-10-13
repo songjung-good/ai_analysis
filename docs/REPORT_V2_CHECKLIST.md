@@ -1,7 +1,7 @@
 # 윤도균 역할 v2 검증 결과
 
 검증일: 2026-10-13. 기준 공통 계약: 원격 AI_Orchestration `72e5aee`.
-작업 브랜치: `feat/dogyun-report`. 이전 변경은 stash에 백업했다.
+작업 브랜치: `feat-report` (AI_Orchestration `00e1f66` 위로 리베이스). 이전 변경은 stash에 백업했다.
 
 ## 이전 검토 문제와 수정 결과
 
@@ -25,7 +25,7 @@
 - 근거 부족·실패·출처 2개 미만을 보고서에 표시한다.
 - 출처 없는 정보 부족 문단은 감추지 않으며 품질 통과 여부는 evaluator가 판정한다.
 - PDF 10쪽 초과 시 오류, 임시 파일 정리. 내용을 조용히 생략하지 않는다.
-- final_report는 모델 호출 없이 평가받은 본문·인용을 유지한다.
+- 최종 report_generation 재호출은 모델 호출 없이 평가받은 본문·인용을 유지한다.
 - 패키징은 명시 PDF·PNG·Git 링크만 포함한다. 샘플·초안·ID 불일치·파일 누락·잘못된 PNG를 거부한다.
 - 패키징의 최종 미통과 한계 보고서 허용은 업무지침의 상한 종료 방침과 일치한다.
 
@@ -35,8 +35,8 @@
 PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
 ```
 
-176개 실행: 172개 통과, 기존 실제 API 테스트 4개 생략, 실패 0.
-보고서 25개 테스트와 패키징 5개 테스트 포함.
+204개 실행: 200개 통과, 기존 실제 API 테스트 4개 생략, 실패 0.
+보고서 30개 테스트와 패키징 5개 테스트 포함.
 `git diff --check`, 관련 Python compileall 통과.
 샘플 PDF 5쪽을 PyMuPDF로 PNG 렌더링해 전 페이지와 상세 페이지의 한글·인용·배치 확인.
 
@@ -49,9 +49,22 @@ PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
 2. evaluator가 report_draft와 references를 평가하고 eval_result·report_attempts 갱신.
 3. rewrite는 report_generation으로, research는 supervisor로 분기.
 4. 재조사 후 resume_after_research=report_generation으로 현재 후보 유지.
-5. 통과와 상한 종료 모두 `final_report` → END. final_report에는
-   `guard_node("report_generation", finalize_report)` 적용.
+5. 현재 graph/control은 통과와 세 번째 미달에서 report_generation 재호출 → END.
+   보고서 run이 terminal verdict를 감지하므로 별도 final_report 노드를 추가하지 않는다.
 6. 실제 실행 후 같은 trace_id의 최종 PDF와 재작업/평가 루프가 있는 PNG를 확보.
 
 상세 계약 및 패키징 명령: [SUPERVISOR_REPORT.md](SUPERVISOR_REPORT.md).
 현재 단계는 보고서 모듈 구현·계약 검증 완료이며 팀 전체 통합 완료가 아니다.
+
+## 그래프 연결 수정 후 검증
+
+- 실제 build_graph와 실제 Supervisor를 사용하고 evaluator/조사 응답만 대체했다.
+- 계속 rewrite 미달: evaluator 3회, 본문 작성 3회, 보고서 출력 4회에서 종료.
+- 계속 research 미달: 시장 관점 재작업 2회 후 동일한 3번째 미달 한계 보고서 경로로 종료.
+- 첫 통과: 본문 작성 1회, evaluator 1회, 보고서 출력 2회로 FINAL / PASS 출력.
+- 1회 미달 후 통과: feedback 재작성 뒤 최종 통과 출력, 추가 평가나 LLM 호출 없음.
+- 통과 및 미통과 그래프의 최종 PDF는 같은 trace_id로 패키징 검사 통과.
+- recursion_limit=100은 이 회귀 테스트의 명시 설정이다. 실제 CLI 설정으로 오인하지 않는다.
+- 테스트용 두 최종 PDF는 모두 5쪽이며 전 페이지 렌더링과 미통과 사유 표시를 육안 확인했다.
+- src/ai_investment/control.py의 통과 경로를 기존 report_generation 재호출로 수정했다.
+  graph.py, state.py, contracts.py는 이번 연결 수정에서 변경하지 않았다.

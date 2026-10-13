@@ -7,11 +7,10 @@
 ## 보고서 노드
 
 ```python
-from ai_investment.agents.report import run, finalize_report
+from ai_investment.agents.report import run
 from ai_investment.contracts import guard_node
 
 builder.add_node("report_generation", guard_node("report_generation", run))
-builder.add_node("final_report", guard_node("report_generation", finalize_report))
 ```
 
 기존 `agents.__init__.report_generation`도 같은 `run`을 가리킨다. 보고서 생성은 한 노드에서
@@ -83,20 +82,27 @@ LLM에 기존 초안과 v2 feedback을 전달한다. temperature=0을 사용하�
 후보가 없으면 모델 호출 없이 summary·4관점·risks·decision_basis에 미실시 사유를 작성하고
 초안과 PDF를 함께 반환한다. 평가 노드에서 이 경우의 통과/미통과 정책을 결정한다.
 
-`run`은 초안이므로 `DRAFT / EVALUATION PENDING`으로 표시한다. 이전 초안의 평가 미달을
-새 초안의 최종 판정으로 표시하지 않는다.
+`run`은 첫 작성과 보완 작성에서 DRAFT / EVALUATION PENDING으로 표시한다.
+이전 초안의 미달을 새 초안의 최종 판정으로 표시하지 않는다.
+다만 eval_result.passed=True 또는 passed=False이고 report_attempts>=3이면
+내부 finalize로 평가된 초안을 그대로 최종 출력한다. 이 호출에서는 LLM을 실행하지 않는다.
 
 `finalize_report(state)`는 **LLM 없이 평가받은 본문과 인용을 유지**하고, 마지막 eval_result로
 평가 상태만 갱신하여 PDF·초안을 함께 반환한다. 통과면 `FINAL / PASS`, 미달이면
 `FINAL / NOT PASSED`와 항목별 사유를 표시한다. evaluator verdict가 없으면 호출을 거부한다.
 미달 판정을 통과로 바꾸거나 report_attempts를 증가시키지 않는다.
 
-통합 담당자는 evaluator의 **통과 및 상한 종료 경로를 final_report → END로 연결**한다.
-rewrite → report_generation, research → supervisor 경로는 그대로 유지한다.
-새 `NODE_WRITES` 항목이 필요하지 않도록 final_report에도 기존 report_generation 쓰기 계약을 적용한다.
-공통 계약의 최대 보완 2회는 report_attempts(미달 횟수) 1·2일 때 보완, 3번째 미달에서 종료라는 의미다.
-필요 관점의 재작업 상한 소진 시 더 일찍 종료하는 정책도 evaluator/통합 담당자가 적용한다.
-보고서 노드는 종료 조건을 소유하지 않는다.
+현재 graph.py의 기존 report_generation 노드를 그대로 사용한다. 별도 final_report 노드는 필요 없다.
+control.route_after_evaluation은 통과 또는 3번째 미달에서 report_generation을 다시 선택하고,
+보고서가 최종 상태를 출력하면 control.route_after_report는 END로 분기한다.
+rewrite와 research는 1·2번째 미달에서 기존 보완 경로를 유지한다.
+보고서 노드는 eval_result·report_attempts·투자 점수를 수정하지 않는다.
+직접 출력 API가 필요한 경우에만 finalize_report를 호출할 수 있다.
+
+최대 보완 2회는 미달 횟수 1·2일 때 재작성/재조사, 3번째 미달에서 최종 한계 보고서라는 뜻이다.
+실제 build_graph·Supervisor와 대체 evaluator를 연결해 rewrite 및 research 미달3회 종료,
+첫 평가 통과와 보완 후 통과, 두 최종 PDF의 패키징을 검증한다.
+테스트는 recursion_limit=100을 명시한다. 운영 CLI의 Supervisor 노드/설정 연결은 팀 통합 범위다.
 
 ## 실행·검증
 
