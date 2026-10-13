@@ -7,10 +7,16 @@ CRAG 흐름 (설계서 D-2 RAG 서브그래프와 1:1 대응)
         |- 부족 & 재작성 가능  -> 쿼리 재작성 -> 벡터DB 검색
         '- 부족 & 재작성 초과  -> web_search 폴백 -> 분석 결과 생성
 
-BASECODE 계약
-- 쓰는 State 키: technical_analysis, references
+Supervisor 계약
+- 쓰는 State 키: analyses["technical"](ViewResult), technical_analysis(전환 기간 원본),
+  references, node_status, node_errors
 - references에는 분석 결과에서 실제 인용한 Evidence만 넣는다.
-- 재시도와 fallback은 이 Agent 안에서 끝내고, 예외는 숨기지 않는다.
+- 최초 실행: 기존 CRAG(재작성 1회 + 웹 폴백)를 그대로 수행한다.
+- 재작업(rework_hints 있음): 내부 재작성 루프를 건너뛰고, Supervisor가 지적한 부족 항목으로
+  질의를 만들어 문헌·웹을 한 번 검색한다. 재시도 판단은 Supervisor가 하므로 이중 루프가 없다.
+  직전 결과의 유효 근거는 버리지 않고 새 근거와 합쳐 다시 분석한다.
+- 입력·설정 오류(기업명 없음, 벡터DB 비어 있음)는 예외로 즉시 중단하고,
+  외부 API 오류는 status=failed로 반환해 Supervisor가 재시도 여부를 정한다.
 """
 
 from __future__ import annotations
@@ -26,12 +32,20 @@ from pydantic import BaseModel, Field
 
 from ..contracts import NodeResult
 from ..models import Evidence
+from ..orchestration.decision_log import log_decision
+from ..orchestration.views import Claim as ViewClaim
+from ..orchestration.views import ViewResult, build_view_result, failed_view_result
 from ..state import GraphState
 from ..tools import tools_for
 
 
 AGENT = "technical_analysis"
+VIEW = "technical"
 TOOLS = tools_for(AGENT)
+
+
+class TechSetupError(RuntimeError):
+    """실행 환경 설정 오류(모델 미설정, 벡터DB 미적재). 재시도해도 해결되지 않는다."""
 
 MAX_QUERIES = 3          # 질의 생성 개수
 TECH_DOCS_K = 5          # 설계서 top_k=5 (fetch_k=20, lambda_mult=0.5는 search_tech_docs 내부)
@@ -182,7 +196,7 @@ def _llm():
 
     model = os.getenv("OPENAI_MODEL")
     if not model:
-        raise RuntimeError("OPENAI_MODEL 환경변수를 설정하세요")
+        raise TechSetupError("OPENAI_MODEL 환경변수를 설정하세요")
     return ChatOpenAI(model=model, temperature=0)
 
 
@@ -256,37 +270,48 @@ def rewrite_query(queries: Sequence[str], missing: Sequence[str]) -> list[str]:
     return _clean_queries(plan.queries)
 
 
-def web_fallback(startup: Mapping[str, Any]) -> list[Evidence]:
+def web_fallback(
+    startup: Mapping[str, Any], extra_queries: Sequence[str] = ()
+) -> list[Evidence]:
     name = str(startup.get("name", "")).strip()
     product = str(startup.get("product", "")).strip()
     search = _tool("web_search")
     queries = [
         f"{name} {product} 로봇 AI 핵심 기술 성능".replace("  ", " "),
         f"{name} robot AI technology benchmark limitation",
+        *extra_queries,
     ]
     return _dedupe(
         item for q in queries for item in search(q, max_results=WEB_MAX_RESULTS)
     )
 
 
-def run_crag(startup: Mapping[str, Any], profile: Mapping[str, Any]) -> CragResult:
+def run_crag(
+    startup: Mapping[str, Any],
+    profile: Mapping[str, Any],
+    *,
+    queries: Sequence[str] | None = None,
+    max_rewrite: int = MAX_REWRITE,
+    force_web: bool = False,
+    web_queries: Sequence[str] = (),
+) -> CragResult:
     """문헌 근거는 벡터DB에서, 기업 고유 근거가 없으면 웹에서 보완한다.
 
     - 관련 문헌이 부족하면 쿼리를 재작성해 벡터DB를 다시 검색한다 (최대 MAX_REWRITE회).
     - 재작성 후에도 부족하거나, 기업 제품을 직접 다룬 자료가 없으면 web_search로 폴백한다.
       (tech_docs는 업계 일반 논문·보고서라 기업 고유 근거는 대부분 웹에서 온다)
     """
-    queries = generate_queries(startup, profile)
+    queries = list(queries) if queries else generate_queries(startup, profile)
     result = CragResult(evidence=[])
     relevant: dict[str, Evidence] = {}
     docs_ok = False
     company_found = False
 
-    for attempt in range(MAX_REWRITE + 1):
+    for attempt in range(max_rewrite + 1):
         found = retrieve(queries)
         result.queries.extend(queries)
         if attempt == 0 and not found:
-            raise RuntimeError(
+            raise TechSetupError(
                 "tech_docs collection이 비어 있습니다. "
                 "먼저 python scripts/ingest_tech_docs.py 를 실행하세요."
             )
@@ -297,13 +322,13 @@ def run_crag(startup: Mapping[str, Any], profile: Mapping[str, Any]) -> CragResu
         if grade.sufficient and len(relevant) >= MIN_RELEVANT_DOCS:
             docs_ok = True
             break
-        if attempt < MAX_REWRITE:
+        if attempt < max_rewrite:
             queries = rewrite_query(queries, grade.missing)
             result.rewrite_count += 1
 
-    if not (docs_ok and company_found):
+    if force_web or not (docs_ok and company_found):
         result.used_web_fallback = True
-        web = grade_relevance(startup, web_fallback(startup))
+        web = grade_relevance(startup, web_fallback(startup, web_queries))
         relevant.update((doc.source_id, doc) for doc in web.relevant)
         result.missing = web.missing
 
@@ -377,24 +402,131 @@ def analyze(
 # Graph Node
 # ---------------------------------------------------------------------------
 
+# 재작업 힌트(필수 항목 이름) → 웹 검색어. 독립 출처 부족은 제3자 자료를 찾도록 유도한다.
+HINT_WEB_TERMS = {
+    "핵심 기술": "핵심 기술 구조 아키텍처",
+    "성능 근거": "성능 테스트 결과 정확도",
+    "외부 검증": "고객 도입 사례 인증 언론 보도",
+    "기술 한계": "기술 한계 과제 문제점",
+}
+INDEPENDENT_SOURCE_TERM = "독립 리뷰 언론 보도 분석"
+MAX_HINT_WEB_QUERIES = 2
+
+
+def hint_web_queries(startup: Mapping[str, Any], hints: Sequence[str]) -> list[str]:
+    name = str(startup.get("name", "")).strip()
+    terms = []
+    for hint in hints:
+        if hint in HINT_WEB_TERMS:
+            terms.append(HINT_WEB_TERMS[hint])
+        elif hint.startswith("독립 출처"):
+            terms.append(INDEPENDENT_SOURCE_TERM)
+    return [f"{name} {t}" for t in dict.fromkeys(terms)][:MAX_HINT_WEB_QUERIES]
+
+
+def to_view_result(analysis: Mapping[str, Any]) -> ViewResult:
+    """기존 분석 결과 → Supervisor 공통 출력(ViewResult).
+
+    필수 항목 커버리지는 '인용(source_ids)이 붙은 주장'으로만 판단한다.
+    기업 자체 주장(company_claim, 출처 없음)만으로는 항목을 채운 것으로 보지 않는다.
+    외부 검증은 제3자 자료(third_party)를 인용한 주장이 있을 때만 충족된다.
+    """
+    sections = (
+        ("core_technologies", "핵심 기술"),
+        ("performance_evidence", "성능 근거"),
+        ("limitations", "기술 한계"),
+        ("differentiation", "차별성"),
+        ("benchmark_context", "업계 기술 수준"),
+    )
+    claims: list[ViewClaim] = [
+        {
+            "text": c["statement"],
+            "source_ids": list(c.get("source_ids", [])),
+            "item": item,
+            "basis": c.get("basis", ""),
+        }
+        for key, item in sections
+        for c in analysis.get(key, [])
+    ]
+    verified = any(c["basis"] == "third_party" and c["source_ids"] for c in claims)
+    return build_view_result(
+        VIEW,
+        summary=str(analysis.get("summary", "")),
+        claims=claims,
+        extra_covered=["외부 검증"] if verified else [],
+    )
+
+
+def _previous_evidence(state: GraphState) -> list[Evidence]:
+    """직전 결과가 인용한 근거. 재작업 시 새 근거와 합쳐 유효한 내용이 사라지지 않게 한다."""
+    previous = (state.get("analyses") or {}).get(VIEW)
+    if not previous:
+        return []
+    ids = set(previous.get("source_ids", []))
+    found = []
+    for item in state.get("references") or []:
+        ev = item if isinstance(item, Evidence) else Evidence.model_validate(item)
+        if ev.source_id in ids:
+            found.append(ev)
+    return found
+
+
+def _previous_queries(state: GraphState) -> list[str]:
+    legacy = state.get("technical_analysis") or {}
+    return list((legacy.get("retrieval") or {}).get("queries", []))[-MAX_QUERIES:]
+
+
 def run(state: GraphState) -> NodeResult:
     """Validate core technology, evidence, and limitations with CRAG."""
     startup = state.get("selected_startup") or {}
     if not str(startup.get("name", "")).strip():
         raise ValueError("selected_startup.name is required")
     profile = state.get("profile") or {}
+    hints = list((state.get("rework_hints") or {}).get(VIEW, []))
 
-    crag = run_crag(startup, profile)
-    analysis, cited = analyze(startup, profile, crag.evidence, crag.missing)
+    try:
+        if hints:
+            queries = rewrite_query(_previous_queries(state), hints)
+            web_queries = hint_web_queries(startup, hints)
+            crag = run_crag(
+                startup, profile,
+                queries=queries, max_rewrite=0, force_web=True, web_queries=web_queries,
+            )
+            log_decision(
+                state.get("trace_id"), "technical", "rework_queries",
+                {"hints": hints, "queries": queries, "web_queries": web_queries},
+            )
+        else:
+            crag = run_crag(startup, profile)
+        evidence = _dedupe([*_previous_evidence(state), *crag.evidence])
+        analysis, cited = analyze(startup, profile, evidence, crag.missing)
+    except (ValueError, PermissionError, TechSetupError):
+        raise  # 입력·권한·설정 오류는 재시도해도 같으므로 즉시 중단
+    except Exception as exc:  # 외부 API·네트워크 오류 → Supervisor가 재시도 판단
+        error = f"{type(exc).__name__}: {exc}"
+        previous = (state.get("analyses") or {}).get(VIEW)
+        return {
+            "analyses": {VIEW: failed_view_result(VIEW, error, previous)},
+            "node_status": {VIEW: "failed"},
+            "node_errors": {VIEW: error},
+        }
+
     analysis["startup_name"] = startup["name"]
     analysis["retrieval"] = {
         "queries": crag.queries,
         "rewrite_count": crag.rewrite_count,
         "used_web_fallback": crag.used_web_fallback,
-        "relevant_count": len(crag.evidence),
+        "relevant_count": len(evidence),
         "cited_count": len(cited),
+        "rework_hints": hints,
     }
-    return {"technical_analysis": analysis, "references": cited}
+    return {
+        "technical_analysis": analysis,
+        "analyses": {VIEW: to_view_result(analysis)},
+        "references": cited,
+        "node_status": {VIEW: "done"},
+        "node_errors": {VIEW: None},
+    }
 
 
 # ---------------------------------------------------------------------------
