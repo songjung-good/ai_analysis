@@ -128,7 +128,8 @@ def supervisor(state: GraphState) -> dict[str, Any]:
                 if used < MAX_REWORK:
                     todo.append(view)
                     counts[view] = used + 1
-                    reasons[view] = f"실행 실패 재시도: {result.get('error', '')}"
+                    error = (state.get("node_errors") or {}).get(view) or result.get("error", "")
+                    reasons[view] = f"실행 실패 재시도: {error}"
                 else:
                     reasons[view] = "실행 실패, 재시도 상한 도달 → 근거 부족으로 진행"
                 continue

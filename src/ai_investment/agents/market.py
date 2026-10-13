@@ -4,6 +4,7 @@ import os
 import re
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from functools import lru_cache
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -15,6 +16,7 @@ from ..crag import CragResult, build_crag, format_evidence, llm_grader, llm_rewr
 from ..models import Evidence
 from ..state import GraphState
 from ..tools import tools_for
+from ..utils.logger import invoke_logged
 
 
 TOOLS = tools_for("market_analysis")
@@ -623,13 +625,13 @@ def describe_competitors(
             f"### {name}\n" + "\n".join(f"- {sentence}" for _, sentence in snippets[name])
             for name in described
         )
-        details = llm.with_structured_output(CompetitorDetails).invoke(
+        details = invoke_logged(llm.with_structured_output(CompetitorDetails),
             f"""평가 대상 기업 {startup["name"]}({startup.get("product") or "제품 정보 없음"})의 경쟁사를 정리합니다.
 기업마다 아래 문장에 적힌 내용만으로 product, target_customer, differentiator를 채우세요.
 문장에 없는 항목은 '근거 없음'으로 쓰고 지어내지 않습니다. name은 제목의 표기를 그대로 씁니다.
 스타트업맵에 실린 기업은 '국내 스타트업'입니다.
 
-{blocks}"""
+{blocks}""", label="경쟁사 근거 정리", model=llm, schema="CompetitorDetails"
         ).items
     competitors = []
     for name in selected:
@@ -741,7 +743,8 @@ def analyze(state: GraphState, *, llm, search=None, web=None) -> NodeResult:
     hints = (state.get("rework_hints") or {}).get("market") or []
     questions = apply_rework_hints(build_questions(startup, profile), hints)
     with ThreadPoolExecutor(max_workers=len(questions)) as pool:
-        futures = {topic: pool.submit(run_crag, crag, q) for topic, q in questions.items()}
+        futures = {topic: pool.submit(copy_context().run, run_crag, crag, q)
+                   for topic, q in questions.items()}
         results: dict[Topic, CragResult] = {t: f.result() for t, f in futures.items()}
 
     evidence: dict[str, Evidence] = {
@@ -749,8 +752,9 @@ def analyze(state: GraphState, *, llm, search=None, web=None) -> NodeResult:
     }
     landscape_evidence = {**map_evidence, **narrative}
     evidence.update(landscape_evidence)
-    analysis = llm.with_structured_output(MarketAnalysis).invoke(
-        _prompt(startup, profile, results, selected, list(landscape_evidence.values()))
+    analysis = invoke_logged(llm.with_structured_output(MarketAnalysis),
+        _prompt(startup, profile, results, selected, list(landscape_evidence.values())),
+        label="시장 종합 분석", model=llm, schema="MarketAnalysis", evidence_count=len(evidence)
     )
     analysis, dropped = enforce_citations(analysis, set(evidence))
     analysis, checks = curate(

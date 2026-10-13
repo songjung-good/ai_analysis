@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 
 from ..state import EvalItem as ItemVerdict
 from ..state import EvalVerdict
+from ..utils.logger import monitor
 
 logger = logging.getLogger(__name__)
 
@@ -244,8 +245,11 @@ def run_judge(judge: Callable[[str], JudgeOutput], prompt: str, retries: int = 1
               trace_id: str | None = None) -> JudgeOutput | None:
     for attempt in range(retries + 1):
         try:
-            out = judge(prompt)
-            return out if isinstance(out, JudgeOutput) else JudgeOutput.model_validate(out)
+            with monitor("llm", label="보고서 품질 Judge", trace_id=trace_id, attempt=attempt + 1,
+                         schema="JudgeOutput", input_chars=len(prompt),
+                         model=os.getenv("OPENAI_JUDGE_MODEL") or os.getenv("OPENAI_MODEL")):
+                out = judge(prompt)
+                return out if isinstance(out, JudgeOutput) else JudgeOutput.model_validate(out)
         except Exception as exc:  # noqa: BLE001 - 파싱·호출 실패는 미달로 귀결
             logger.warning("judge failed trace_id=%s attempt=%d/%d: %s: %s",
                            trace_id, attempt + 1, retries + 1, type(exc).__name__, exc)
@@ -317,7 +321,9 @@ def evaluate(state: Mapping[str, Any], *, judge: Callable[[str], JudgeOutput] | 
     refs = _refs_by_id(state.get("references", []))
     attempt = int(state.get("report_attempts", 0))
 
-    rules = check_rules(draft, refs)
+    with monitor("quality_rules", label="보고서 품질 규칙 검사") as metrics:
+        rules = check_rules(draft, refs)
+        metrics["missing_count"] = sum(not item["passed"] for item in rules.values())
     hard_fail = any(not r["passed"] for r in rules.values())
     judge_out = None
     if not hard_fail:  # 규칙 확실 실패면 Judge 비용을 쓰지 않는다

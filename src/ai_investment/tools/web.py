@@ -11,6 +11,7 @@ from typing import Any
 
 from ..models import Evidence
 from .common import source_id
+from ..utils.logger import monitor
 
 
 logger = logging.getLogger(__name__)
@@ -93,19 +94,31 @@ def web_search(
     tool = TavilySearch(
         max_results=max_results, include_domains=domains or [], handle_tool_error=False
     )
-    with _search_lock:
+    with monitor("search_queue", label="웹 검색 호출 순서 대기", query=query):
+        _search_lock.acquire()
+    try:
         for attempt in range(MAX_RATE_LIMIT_RETRIES + 1):
             delay = max(0.0, _next_search_at - monotonic())
             if delay:
-                sleep(delay)
+                with monitor("search_wait", label="웹 검색 호출 간격·재시도 대기", query=query,
+                             attempt=attempt + 1, delay_seconds=round(delay, 2)):
+                    sleep(delay)
             _next_search_at = monotonic() + interval
             try:
-                payload = tool.invoke({"query": query})
-                return _to_evidence(payload, max_results)
+                with monitor("web_request", label="Tavily 검색 응답", query=query, attempt=attempt + 1) as metrics:
+                    try:
+                        payload = tool.invoke({"query": query})
+                    except ToolException as exc:
+                        if not str(exc).startswith("No search results found for '"):
+                            raise
+                        results = []
+                    else:
+                        results = _to_evidence(payload, max_results)
+                    metrics.update(result_count=len(results), source_ids=[item.source_id for item in results],
+                                   source_urls=[item.url for item in results],
+                                   evidence_chars=sum(len(item.excerpt) for item in results))
+                    return results
             except Exception as exc:
-                # TavilySearch represents a successful zero-hit search as a ToolException.
-                if isinstance(exc, ToolException) and str(exc).startswith("No search results found for '"):
-                    return []
                 if not _rate_limited(exc):
                     raise
                 delay = backoff * (2 ** attempt)
@@ -120,3 +133,5 @@ def web_search(
                                    "node": "web_search", "event": "rate_limit_retry", "query": query,
                                    "retry_count": attempt + 1, "delay_seconds": delay,
                                })
+    finally:
+        _search_lock.release()

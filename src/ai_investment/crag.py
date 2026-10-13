@@ -16,6 +16,7 @@ from typing import Annotated, Literal, TypedDict
 from pydantic import BaseModel, Field
 
 from .models import Evidence
+from .utils.logger import invoke_logged, monitor
 
 
 Retriever = Callable[[str], list[Evidence]]
@@ -88,10 +89,11 @@ def llm_grader(llm) -> Grader:
     def grade_relevance(question: str, evidence: Sequence[Evidence]) -> set[str]:
         if not evidence:
             return set()
-        result = structured.invoke(
+        result = invoke_logged(structured,
             "다음 근거 중 질문에 답하는 데 직접 사용할 수 있는 것만 고르세요. "
             "주제만 비슷하고 질문의 대상·지표에 답하지 못하면 제외합니다.\n\n"
-            f"질문: {question}\n\n근거:\n{format_evidence(evidence)}"
+            f"질문: {question}\n\n근거:\n{format_evidence(evidence)}",
+            label="검색 근거 관련성 평가", model=llm, schema="RelevanceGrade", evidence_count=len(evidence)
         )
         return set(result.relevant_ids) & {item.source_id for item in evidence}
 
@@ -103,12 +105,13 @@ def llm_rewriter(llm) -> Rewriter:
     structured = llm.with_structured_output(RewrittenQuery)
 
     def rewrite_query(question: str, query: str, evidence: Sequence[Evidence]) -> str:
-        result = structured.invoke(
+        result = invoke_logged(structured,
             "이전 검색 질의로 질문에 맞는 근거를 충분히 찾지 못했습니다. "
             "동의어, 영문 표기, 상위·하위 개념을 활용해 다른 각도의 검색 질의를 만드세요. "
             "요청문이 아닌 핵심 키워드 나열로, 15단어 이내로 씁니다.\n\n"
             f"질문: {question}\n이전 질의: {query}\n"
-            f"이전 결과 제목: {', '.join(item.title for item in evidence) or '없음'}"
+            f"이전 결과 제목: {', '.join(item.title for item in evidence) or '없음'}",
+            label="검색 질의 재작성", model=llm, schema="RewrittenQuery"
         )
         if not result.query.strip():
             raise ValueError("rewrite_query returned an empty query")
@@ -129,7 +132,11 @@ def build_crag(
     from langgraph.graph import END, START, StateGraph
 
     def search_vector(state: CragState) -> dict:
-        return {"candidates": retrieve(state["query"]), "queries": [state["query"]]}
+        with monitor("retrieval", label="시장 문헌 검색", query=state["query"],
+                     attempt=state.get("rewrites", 0) + 1) as metrics:
+            candidates = retrieve(state["query"])
+            metrics["result_count"] = len(candidates)
+            return {"candidates": candidates, "queries": [state["query"]]}
 
     def grade_candidates(state: CragState) -> dict:
         relevant_ids = grade(state["question"], state["candidates"])

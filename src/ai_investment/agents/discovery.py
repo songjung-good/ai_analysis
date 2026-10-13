@@ -31,6 +31,7 @@ from ..contracts import NodeResult
 from ..models import Evidence
 from ..state import GraphState, Startup
 from ..tools import tools_for
+from ..utils.logger import monitor
 
 
 TOOLS = tools_for("startup_discovery")
@@ -180,10 +181,18 @@ class DiscoveryAgent:
         self.search = search if search is not None else TOOLS[0]
         self.sleep = sleep
 
-    def _search(self, query: str) -> list[Evidence]:
+    def _search(self, query: str, *, target_name=None, query_index=None, query_count=None) -> list[Evidence]:
         for attempt in range(2):
             try:
-                results = self.search(query, max_results=5)
+                with monitor("discovery_search", label="후보 검색", logger_name=__name__,
+                             query=query, target_name=target_name, attempt=attempt + 1,
+                             query_index=query_index, query_count=query_count) as metrics:
+                    results = self.search(query, max_results=5)
+                    if not isinstance(results, list) or any(not isinstance(item, Evidence) for item in results):
+                        raise TypeError("web_search must return list[Evidence]")
+                    metrics.update(result_count=len(results), source_ids=[item.source_id for item in results],
+                                   source_urls=[item.url for item in results],
+                                   evidence_chars=sum(len(item.excerpt) for item in results))
             except Exception as exc:
                 status = getattr(exc, "status_code", None)
                 if status is None:
@@ -197,10 +206,6 @@ class DiscoveryAgent:
                     raise RuntimeError("Startup discovery web search failed after 2 attempts") from exc
                 self.sleep(0.5)
                 continue
-            if not isinstance(results, list) or any(
-                not isinstance(item, Evidence) for item in results
-            ):
-                raise TypeError("web_search must return list[Evidence]")
             return results
         raise AssertionError("unreachable")
 
@@ -220,10 +225,25 @@ class DiscoveryAgent:
         ]
         for attempt in range(2):
             try:
-                result = model.invoke(messages)
-                parsed = result if isinstance(result, schema) else schema.model_validate(result)
-                _validate_citations(parsed, evidence)
-                return parsed
+                with monitor("llm", label="기업명 추출" if schema is _Proposals else "기업 자격·자료 검증",
+                             logger_name=__name__, target_name=task.get("company"),
+                             attempt=attempt + 1, schema=schema.__name__,
+                             model=getattr(self.llm, "model_name", None) or os.getenv("OPENAI_MODEL"),
+                             timeout_seconds=getattr(self.llm, "request_timeout", None),
+                             sdk_max_retries=getattr(self.llm, "max_retries", None),
+                             input_chars=sum(len(text) for _, text in messages),
+                             evidence_count=len(evidence)) as metrics:
+                    result = model.invoke(messages)
+                    parsed = result if isinstance(result, schema) else schema.model_validate(result)
+                    _validate_citations(parsed, evidence)
+                    if isinstance(parsed, _Proposals):
+                        metrics["result_count"] = len(parsed.companies)
+                    else:
+                        metrics["checks"] = {key: value.confirmed for key, value in parsed.__dict__.items()
+                                             if isinstance(value, _Check)}
+                        metrics["missing_fields"] = [key for key, value in parsed.__dict__.items()
+                                                     if isinstance(value, _SourcedText) and not value.value]
+                    return parsed
             except (ValidationError, OutputParserException, ValueError) as exc:
                 if attempt == 1:
                     raise ValueError("Startup discovery returned invalid structured evidence") from exc
@@ -293,8 +313,9 @@ class DiscoveryAgent:
                 f'"{name}" robotics technical specifications validation',
                 f'"{name}" customer deployment operational sales case study',
             )
-            for query in verify_queries:
-                evidence.extend(self._search(query))
+            for query_index, query in enumerate(verify_queries, 1):
+                evidence.extend(self._search(query, target_name=name, query_index=query_index,
+                                             query_count=len(verify_queries)))
             evidence = _unique_evidence(evidence)
             if not evidence:
                 logger.info("후보 제외: %s (검색 근거 없음)", name, extra={

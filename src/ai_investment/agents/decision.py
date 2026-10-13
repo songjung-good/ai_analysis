@@ -10,6 +10,7 @@ from ..contracts import NodeResult
 from ..models import Evidence
 from ..scoring import WEIGHTS, calculate_score
 from ..state import GraphState
+from ..utils.logger import invoke_logged, monitor
 from ..tools import tools_for
 from .decision_models import InvestmentAssessment
 
@@ -124,7 +125,9 @@ def _model():
 
 def _update(name: str, scores: dict[str, float], reason: str, *, force_hold=False,
             details=None, risks=None, gaps=None, sources=None) -> NodeResult:
-    result = calculate_score(scores, force_hold=force_hold)
+    with monitor("scoring", label="가중 점수·투자 안전 조건 판정") as metrics:
+        result = calculate_score(scores, force_hold=force_hold)
+        metrics["decision"] = result.decision
     reason = f"최종 판단: {result.decision}; 가중 점수: {result.weighted_score}\n{reason}"
     evaluation = {
         "startup_name": name, "score": result.weighted_score,
@@ -176,9 +179,10 @@ def run(state: GraphState, *, model: Any = None) -> NodeResult:
     context["evidence"] = [item.model_dump() for item in references if item.source_id in current_ids]
     llm = model if model is not None else _model()
     structured = llm.with_structured_output(InvestmentAssessment, method="function_calling", strict=False)
-    output = structured.invoke([
+    output = invoke_logged(structured, [
         ("system", SYSTEM_PROMPT), ("human", json.dumps(context, ensure_ascii=False)),
-    ])
+    ], label="투자 평가 구조화 응답", model=llm, schema="InvestmentAssessment",
+        evidence_count=len(context["evidence"]))
 
     def resolve_sid(sid: str, ref_set: set[str]) -> str:
         s = sid.strip()

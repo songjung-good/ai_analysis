@@ -26,7 +26,7 @@ from ai_investment.agents.report import finalize_report
 from ai_investment.orchestration.evaluator import run as evaluate_report
 from ai_investment.orchestration.supervisor import supervisor
 from ai_investment.state import create_initial_state
-from ai_investment.utils.logger import setup_logging
+from ai_investment.utils.logger import setup_logging, monitor
 
 
 def supervised_decision(state):
@@ -147,12 +147,15 @@ def main():
 
     handler = setup_logging(initial_state["trace_id"])
     print(f"실행 ID: {initial_state['trace_id']}")
+    print(f"실행 로그: {handler.baseFilename}")
+    print(f"시도별 로그: {Path(handler.baseFilename).with_suffix('') / 'attempts'}")
     try:
-        final_state = graph.invoke(initial_state, config={
-            "metadata": {"trace_id": initial_state["trace_id"]},
-            "run_name": f"supervisor-{initial_state['trace_id']}",
-            "recursion_limit": max(100, 2 * args.max_steps + 4 * args.max_iterations + 20),
-        })
+        with monitor("run", label="전체 투자 분석 실행", trace_id=initial_state["trace_id"]):
+            final_state = graph.invoke(initial_state, config={
+                "metadata": {"trace_id": initial_state["trace_id"]},
+                "run_name": f"supervisor-{initial_state['trace_id']}",
+                "recursion_limit": max(100, 2 * args.max_steps + 4 * args.max_iterations + 20),
+            })
     finally:
         logging.getLogger("ai_investment").removeHandler(handler)
         handler.close()

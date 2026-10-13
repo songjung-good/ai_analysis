@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..contracts import NodeResult
 from ..state import GraphState, Startup
 from ..tools import tools_for
+from ..utils.logger import invoke_logged
 
 
 TOOLS = tools_for("customer_profile")
@@ -88,11 +89,11 @@ def classify(startup: Startup, classifier) -> dict[str, object]:
             missing_info=["제품 설명"],
         ).model_dump()
 
-    result = classifier.invoke(
+    result = invoke_logged(classifier,
         [
             ("system", SYSTEM_PROMPT),
             ("human", _describe(startup)),
-        ]
+        ], label="고객 프로필 분류", schema="CustomerProfile"
     )
     if not isinstance(result, CustomerProfile):
         result = CustomerProfile.model_validate(result)

@@ -7,6 +7,7 @@ from typing import Any
 
 from ..models import Evidence
 from ..state import GraphState
+from ..utils.logger import invoke_logged
 from .business_models import BusinessAnalysis, BusinessView, validate_business_view
 
 
@@ -220,10 +221,10 @@ def analyze_business(
     structured = model.with_structured_output(
         BusinessAnalysis, method="function_calling", strict=False
     )
-    output = structured.invoke([
+    output = invoke_logged(structured, [
         ("system", prompt),
         ("human", json.dumps(payload, ensure_ascii=False)),
-    ])
+    ], label="사업 관점 구조화 분석", model=model, schema="BusinessAnalysis", evidence_count=len(evidence))
     available = {item.source_id for item in evidence}
     raw = output.model_dump() if hasattr(output, "model_dump") else output
     normalized = _normalize_citations(raw, available)

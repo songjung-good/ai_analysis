@@ -7,6 +7,7 @@ from pathlib import Path
 
 from ..models import Evidence
 from .common import documents_to_evidence
+from ..utils.logger import monitor
 
 
 MODEL_NAME = "nlpai-lab/KURE-v1"
@@ -24,7 +25,8 @@ class KUREEmbeddings:
     def __init__(self) -> None:
         from sentence_transformers import SentenceTransformer
 
-        self.model = SentenceTransformer(MODEL_NAME)
+        with monitor("embedding_load", label="검색 임베딩 모델 로딩", model=MODEL_NAME):
+            self.model = SentenceTransformer(MODEL_NAME)
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         with _ENCODE_LOCK:
@@ -66,12 +68,18 @@ def _cached_store(collection_name: str):
 
 def search_tech_docs(query: str, k: int = 5) -> list[Evidence]:
     _validate_search(query, k)
-    return documents_to_evidence(mmr_search(_store(TECH_COLLECTION), query, k))
+    with monitor("document_search", label="기술 문헌 MMR 검색", query=query) as metrics:
+        results = documents_to_evidence(mmr_search(_store(TECH_COLLECTION), query, k))
+        metrics["result_count"] = len(results)
+        return results
 
 
 def search_market_docs(query: str, k: int = 5) -> list[Evidence]:
     _validate_search(query, k)
-    return documents_to_evidence(hybrid_search(_store(MARKET_COLLECTION), query, k))
+    with monitor("document_search", label="시장 문헌 Hybrid 검색", query=query) as metrics:
+        results = documents_to_evidence(hybrid_search(_store(MARKET_COLLECTION), query, k))
+        metrics["result_count"] = len(results)
+        return results
 
 
 def mmr_search(store, query: str, k: int) -> list:

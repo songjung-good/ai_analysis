@@ -20,6 +20,7 @@ from ..control import MAX_REPORT_FAILURES
 from ..models import Evidence
 from ..scoring import WEIGHTS
 from ..state import GraphState, VIEWS
+from ..utils.logger import invoke_logged, monitor
 from ..tools import tools_for
 
 TOOLS = tools_for("report_generation")
@@ -164,7 +165,8 @@ def _write_report_draft(state: GraphState) -> ReportDraft:
     )
     messages = [("system", prompt), ("human", json.dumps(payload, ensure_ascii=False, default=_json_value))]
     for attempt in range(2):
-        result = model.invoke(messages)
+        result = invoke_logged(model, messages, label="보고서 본문 작성", attempt=attempt + 1,
+                               schema="ReportDraft", timeout_seconds=60, sdk_max_retries=2)
         draft = result if isinstance(result, ReportDraft) else ReportDraft.model_validate(result)
         refs = _used_references(draft, state)
         if refs or not payload["context"]["references"]:
@@ -414,7 +416,9 @@ class ReportAgent:
         name = str((state.get("selected_startup") or {}).get("name") or "no_eligible_candidates")
         trace = str(state.get("trace_id") or "trace-unavailable")
         path = _pdf_path(self.output_dir, name, trace)
-        created = render_report_pdf(draft, state, references, path, final=final)
+        with monitor("pdf", label="보고서 PDF 출력", evidence_count=len(references)) as metrics:
+            created = render_report_pdf(draft, state, references, path, final=final)
+            metrics["artifact"] = str(created)
         return {"report": str(created), "report_draft": draft.model_dump(mode="json")}
 
     def run(self, state: GraphState) -> NodeResult:
@@ -428,8 +432,9 @@ class ReportAgent:
             # Keep the evaluated prose; generating new prose would require another evaluation.
             return self.finalize(state)
         if (state.get("selected_startup") or {}).get("name"):
-            result = self.draft_writer(deepcopy(state))
-            draft = ReportDraft.model_validate(result).model_copy(deep=True)
+            with monitor("draft", label="보고서 초안 생성·검증"):
+                result = self.draft_writer(deepcopy(state))
+                draft = ReportDraft.model_validate(result).model_copy(deep=True)
         else:
             draft = _empty_draft()
         return self._publish(draft, state)

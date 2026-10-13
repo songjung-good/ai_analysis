@@ -6,6 +6,7 @@ from functools import wraps
 from typing import Any, TypeAlias
 
 from .state import GraphState
+from .utils.logger import monitor_node
 
 
 NodeResult: TypeAlias = dict[str, Any]
@@ -106,41 +107,47 @@ NODE_DESCRIPTIONS: dict[str, str] = {
 }
 
 
-def _node_context(node_name: str, state: GraphState) -> str:
-    desc = NODE_DESCRIPTIONS.get(node_name, node_name)
-    startup = state.get("selected_startup")
-    target = f" [대상: {startup.get('name')}]" if isinstance(startup, dict) and startup.get("name") else ""
-    return f"{desc}{target}"
-
-
 def guard_node(node_name: str, node: Node) -> Node:
     """Reject writes outside a node's ownership contract."""
-    # ponytail: stdout printing for CLI progress. upgrade path: logging/callback handler
     if inspect.iscoroutinefunction(node):
 
         @wraps(node)
         async def async_guarded(state: GraphState) -> NodeResult:
-            ctx = _node_context(node_name, state)
-            print(f"▶ {ctx} 진행 중...")
-            result = await node(state)
-            validated = _validate_update(node_name, result)
-            print(f"✔ {ctx} 완료")
-            return validated
+            with monitor_node(node_name, state, NODE_DESCRIPTIONS.get(node_name, node_name)) as metrics:
+                validated = _validate_update(node_name, await node(state))
+                _result_metrics(metrics, validated)
+                return validated
 
         return async_guarded
 
     @wraps(node)
     def guarded(state: GraphState) -> NodeResult:
-        ctx = _node_context(node_name, state)
-        print(f"▶ {ctx} 진행 중...")
-        result = node(state)
-        if inspect.isawaitable(result):
-            raise TypeError(
-                f"{node_name} returned an awaitable from a synchronous callable; "
-                "declare the node with 'async def'"
-            )
-        validated = _validate_update(node_name, result)
-        print(f"✔ {ctx} 완료")
-        return validated
+        with monitor_node(node_name, state, NODE_DESCRIPTIONS.get(node_name, node_name)) as metrics:
+            result = node(state)
+            if inspect.isawaitable(result):
+                raise TypeError(
+                    f"{node_name} returned an awaitable from a synchronous callable; "
+                    "declare the node with 'async def'"
+                )
+            validated = _validate_update(node_name, result)
+            _result_metrics(metrics, validated)
+            return validated
 
     return guarded
+
+
+def _result_metrics(metrics, result):
+    analyses = result.get("analyses") or {}
+    if not isinstance(analyses, dict):  # candidate reset uses LangGraph Overwrite
+        analyses = {}
+    errors = {view: (result.get("node_errors") or {}).get(view) or "분석 실행 실패"
+              for view, value in analyses.items()
+              if value.get("status") == "failed"}
+    missing = sum(len(value.get("missing_items", [])) for value in analyses.values())
+    metrics.update(result_count=len(result.get("references") or []), missing_count=missing)
+    if "candidates" in result:
+        metrics["candidate_count"] = len(result["candidates"])
+    if errors:
+        metrics.update(status="failed", error=errors)
+    elif missing:
+        metrics["status"] = "insufficient"

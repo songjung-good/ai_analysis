@@ -151,6 +151,10 @@ ai_analysis/
 python app.py --candidate-list data/discovery_candidates.json --limit 3
 ```
 
+실행 시 검색·LLM 응답·문헌 검색·PDF 출력의 시작/완료/실패와 소요 시간을 표시합니다.
+실행별 전체 JSONL과 노드 시도별 파일에 저장하며, 시작할 때 경로를 출력합니다.
+확인 방법과 1단계 호출 비용: [실행 모니터링](docs/RUN_MONITORING.md).
+
 실행 환경:
 
 ```bash

@@ -1,18 +1,17 @@
 """Bounded web research for the deployment and business Agent."""
 
-import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from ..models import Evidence
 from ..state import GraphState, dedupe_by_source_id
 from ..tools.web import web_search
+from ..utils.logger import monitor
 from .business_models import BusinessView, validate_business_view
 
 
 MAX_SEARCH_CALLS = 3
 MAX_RESULTS_PER_CALL = 5
-logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -130,17 +129,10 @@ def collect_evidence(
             "target_name": target_name,
             "attempt": attempt, "query": query, "rework_hints": list(plan.rework_hints),
         }
-        logger.info("business_search_started: %s", query, extra={**context, "event": "search_started"})
-        try:
+        with monitor("search", label="고객·현장 자료 검색", logger_name=__name__, **context) as metrics:
             results = search(query, max_results=MAX_RESULTS_PER_CALL)
-        except Exception as exc:
-            logger.info("business_search_failed", extra={
-                **context, "event": "search_failed", "error": f"{type(exc).__name__}: {exc}",
-            })
-            raise
-        evidence.extend(results[:MAX_RESULTS_PER_CALL])
-        logger.info("business_search_finished", extra={
-            **context, "event": "search_finished",
-            "result_count": len(results[:MAX_RESULTS_PER_CALL]),
-        })
+            evidence.extend(results[:MAX_RESULTS_PER_CALL])
+            metrics.update(result_count=len(results[:MAX_RESULTS_PER_CALL]),
+                           source_ids=[item.source_id for item in results[:MAX_RESULTS_PER_CALL]],
+                           source_urls=[item.url for item in results[:MAX_RESULTS_PER_CALL]])
     return dedupe_by_source_id([], evidence)

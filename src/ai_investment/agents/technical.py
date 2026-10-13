@@ -37,6 +37,7 @@ from ..orchestration.views import Claim as ViewClaim
 from ..orchestration.views import ViewResult, build_view_result, failed_view_result
 from ..state import GraphState
 from ..tools import tools_for
+from ..utils.logger import invoke_logged, monitor
 
 
 AGENT = "technical_analysis"
@@ -201,7 +202,9 @@ def _llm():
 
 
 def _structured(schema: type[T], prompt: str) -> T:
-    return _llm().with_structured_output(schema).invoke(prompt)
+    model = _llm()
+    return invoke_logged(model.with_structured_output(schema), prompt,
+                         label=f"기술 분석 {schema.__name__}", model=model, schema=schema.__name__)
 
 
 def _tool(name: str):
@@ -308,7 +311,9 @@ def run_crag(
     company_found = False
 
     for attempt in range(max_rewrite + 1):
-        found = retrieve(queries)
+        with monitor("retrieval", label="기술 문헌 검색", attempt=attempt + 1, query=queries) as metrics:
+            found = retrieve(queries)
+            metrics["result_count"] = len(found)
         result.queries.extend(queries)
         if attempt == 0 and not found:
             raise TechSetupError(
