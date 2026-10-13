@@ -116,6 +116,9 @@ def build_graph(nodes: AgentNodes):
     builder.add_conditional_edges(
         "evaluator",
         route_after_evaluation,
-        {"end": terminal, "supervisor": "supervisor", "report_generation": "report_generation"},
+        {
+            "end": terminal if nodes.final_report is not None else "report_generation",
+            "supervisor": "supervisor", "report_generation": "report_generation",
+        },
     )
     return builder.compile()

@@ -5,7 +5,7 @@ Supervisor 기반 동적 조사와 보고서 품질 평가로 전환하는 프�
 
 현재 브랜치에는 공통 State·Reducer·NODE_WRITES, Supervisor, 선택형 Supervisor 그래프와
 보고서 v2 구현이 포함되어 있습니다. evaluator와 나머지 관점 어댑터의 운영 연결 및
-LangSmith 실제 트레이스는 팀 통합이 필요합니다. `app.py`는 현재 기존 그래프를 실행합니다.
+실제 API·LangSmith 캡처는 별도 확인이 필요합니다. `app.py`는 Supervisor 그래프를 실행합니다.
 
 ## Overview
 
@@ -152,6 +152,15 @@ pip install -r requirements.txt
 ```
 
 `.env`에 OPENAI_API_KEY, OPENAI_MODEL, TAVILY_API_KEY를 설정합니다.
+
+Tavily 검색은 같은 프로세스의 모든 Agent가 공통 호출 간격을 사용합니다.
+기본 `TAVILY_MIN_INTERVAL_SECONDS=1`이며, 429일 때 `TAVILY_RETRY_BACKOFF_SECONDS=15`를
+기준으로 15초·30초 대기 후 재시도합니다. 총 3회 실패하면 중단합니다. 인증·입력 오류는
+이 경로에서 재시도하지 않고, 검색 실패를 빈 검색 결과로 처리하지 않습니다.
+같은 키를 사용하는 다른 프로세스의 호출은 이 제한에 포함되지 않습니다. 반복 429가 발생하면
+Tavily Dashboard에서 키 유형과 공유 사용을 확인합니다.
+[공식 429 안내](https://help.tavily.com/articles/8645538886-understanding-http-errors).
+
 REPORT_FONT_PATH는 자동 탐색 가능한 한글 폰트가 없을 때 한글 TTF 절대 경로로 지정합니다.
 LangSmith 캡처를 사용할 때는 LANGSMITH_TRACING=true, LANGSMITH_PROJECT,
 LANGSMITH_API_KEY를 설정합니다. 기존 LANGCHAIN_TRACING_V2·LANGCHAIN_PROJECT 설정도 사용할 수 있습니다.
@@ -200,7 +209,7 @@ ZIP에는 Git 링크·PDF·번호순 PNG·실행 ID/해시 manifest를 포함합
 보고서 검증은 v2 입력·정확한 쓰기 계약·feedback 전달·출처 범위·점수 보존·후보 부재·
 재작성 연결·최종 통과/미달 상태·10쪽 상한·원자적 출력을 확인합니다.
 Mock Judge를 사용한 테스트는 운영 Judge의 품질이나 실제 LangSmith 실행을 증명하지 않습니다.
-2026-10-13: 전체 204개 중 200개 통과, 실제 API 테스트 4개 생략. [v2 검증 체크리스트](docs/REPORT_V2_CHECKLIST.md).
+2026-10-13 통합·429 회귀 검증: 전체 252개 중 248개 통과, 실제 API 테스트 4개 생략. [v2 검증 체크리스트](docs/REPORT_V2_CHECKLIST.md).
 
 ## Contributors
 

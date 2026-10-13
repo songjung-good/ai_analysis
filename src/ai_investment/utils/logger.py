@@ -19,7 +19,8 @@ class TraceFormatter(logging.Formatter):
             "message": record.getMessage(), "ts": record.created,
         }
         for key in ("event", "view", "target_name", "attempt", "query", "rework_hints",
-                    "result_count", "error", "decision", "reason", "target_views"):
+                    "result_count", "error", "decision", "reason", "target_views",
+                    "retry_count", "delay_seconds"):
             if key in record.__dict__:
                 rec[key] = record.__dict__[key]
         return json.dumps(rec, ensure_ascii=False, default=str)

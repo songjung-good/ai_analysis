@@ -252,13 +252,15 @@ class WebFailureTests(unittest.TestCase):
                 _to_evidence(payload, 5)
 
     @patch("langchain_tavily.TavilySearch")
-    def test_documented_zero_results_exception_is_empty_search(self, tool):
+    @patch("ai_investment.tools.web.sleep")
+    def test_documented_zero_results_exception_is_empty_search(self, _sleep, tool):
         tool.return_value.invoke.side_effect = ToolException("No search results found for 'robotics'. Suggestions: retry.")
         self.assertEqual(web_search("robotics"), [])
         self.assertFalse(tool.call_args.kwargs["handle_tool_error"])
 
     @patch("langchain_tavily.TavilySearch")
-    def test_other_tool_errors_propagate(self, tool):
+    @patch("ai_investment.tools.web.sleep")
+    def test_other_tool_errors_propagate(self, _sleep, tool):
         tool.return_value.invoke.side_effect = ToolException("Unexpected service error")
         with self.assertRaisesRegex(ToolException, "Unexpected service"):
             web_search("robotics")

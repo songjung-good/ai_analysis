@@ -63,7 +63,9 @@ def route_after_report(state: GraphState) -> str:
 def route_after_evaluation(state: GraphState) -> str:
     verdict = state.get("eval_result") or {}
     if verdict.get("passed"):
-        return "report_generation"  # 평가받은 본문을 유지하며 최종 통과 상태 출력
+        return "end"  # graph가 최종 출력 노드 또는 기존 report 재진입으로 연결
+    if not (state.get("selected_startup") or {}).get("name"):
+        return "end"
     if _exhausted(state):
         return "end"  # 최종 출력 노드에서 평가한 본문을 유지하며 미통과 사유를 반영
     if verdict.get("action") == "research":
