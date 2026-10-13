@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from ..models import Evidence
 from ..state import GraphState
 from ..tools.web import web_search
+from .business_models import BusinessView, validate_business_view
 
 
 MAX_SEARCH_CALLS = 3
@@ -42,8 +43,9 @@ def _strings(value: object, field: str) -> list[str]:
     return [item.strip() for item in value if item.strip()]
 
 
-def build_search_plan(state: GraphState) -> SearchPlan:
+def build_search_plan(state: GraphState, *, view: BusinessView | None = None) -> SearchPlan:
     """Validate known input fields without mutating the shared State."""
+    validate_business_view(view)
     startup = _mapping(state.get("selected_startup"), "selected_startup")
     profile = _mapping(state.get("profile"), "profile")
     name = _text(startup.get("name"), "selected_startup.name")
@@ -72,11 +74,30 @@ def build_search_plan(state: GraphState) -> SearchPlan:
     ))
     subject = " ".join((name, values["product"])) if context_complete else name
     customer = f" {values['paying_customer']}" if context_complete else ""
-    queries = (
-        f"{subject}{customer} 고객 도입 유료 계약 시험 운영 customer deployment paid contract pilot",
-        f"{subject} 가격 설치 유지보수 생산성 pricing maintenance productivity ROI case study",
-        f"{subject} 안전 인증 현장 도입 safety certification deployment",
-    )
+    if view == "stakeholder":
+        queries = (
+            f"{subject}{customer} 고객 구매자 사용자 공급사 stakeholder buyer user supplier",
+            f"{subject} 구매 의사결정 비용 부담 수익 배분 procurement cost responsibility",
+            f"{subject} 파트너 작업자 이해 충돌 도입 반대 stakeholder conflict worker impact",
+        )
+    elif view == "domain":
+        queries = (
+            f"{subject}{customer} 적용 현장 도입 사례 PoC 실제 운영 deployment pilot operation",
+            f"{subject} 설치 통합 운영 조건 현장 제약 deployment integration limitations",
+            f"{subject} 현장 실패 안전 규제 인증 deployment failure safety certification",
+        )
+    else:
+        queries = (
+            f"{subject}{customer} 고객 도입 유료 계약 시험 운영 customer deployment paid contract pilot",
+            f"{subject} 가격 설치 유지보수 생산성 pricing maintenance productivity ROI case study",
+            f"{subject} 안전 인증 현장 도입 safety certification deployment",
+        )
+    if view is not None:
+        unrelated = {
+            "입력 누락: selected_startup.funding_stage", "입력 누락: selected_startup.team",
+            "입력 누락: profile.info_sufficiency", "입력 누락: profile.missing_info",
+        }
+        gaps = [gap for gap in gaps if gap not in unrelated]
     return SearchPlan(queries, tuple(dict.fromkeys(gaps)))
 
 

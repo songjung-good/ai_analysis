@@ -6,7 +6,13 @@ from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
 
 
 Stage = Literal["demo", "pilot", "paid_operation", "unknown"]
+BusinessView = Literal["stakeholder", "domain"]
 Text = Annotated[str, Field(min_length=1)]
+
+
+def validate_business_view(view: BusinessView | None) -> None:
+    if view not in (None, "stakeholder", "domain"):
+        raise ValueError("view must be 'stakeholder' or 'domain'")
 
 
 class BusinessModel(BaseModel):

@@ -7,7 +7,7 @@ from typing import Any
 
 from ..models import Evidence
 from ..state import GraphState
-from .business_models import BusinessAnalysis
+from .business_models import BusinessAnalysis, BusinessView, validate_business_view
 
 
 SYSTEM_PROMPT = """당신은 Physical AI·Robotics 현장 도입·사업성 분석 담당자다.
@@ -82,6 +82,30 @@ cross_verified는 최소 두 개의 독립된 원 출처가 동일한 구체적 
 """
 
 
+VIEW_INSTRUCTIONS = {
+    "stakeholder": """이번 호출은 이해관계자(stakeholder) 관점만 담당한다.
+고객·구매자·실제 사용자·공급사·파트너를 구분하고 각 주체의 역할, 구매 결정권,
+비용 부담과 기대효과, 이해 충돌을 확인한다. 주체를 확인한 사실과 추론을 구분한다.
+고객 사례는 customer_cases, 비용 부담 근거는 deployment_costs에 기록한다.
+역할·이해 충돌에 관한 주장은 evidence_assessment에 출처·검증 수준과 함께 기록한다.
+없는 이해 충돌을 생성하거나 자료가 없다는 이유로 이해 충돌이 없다고 단정하지 않는다.
+summary와 추가 information_gaps는 이 관점의 발견과 미확인 항목에 한정한다.
+기술·시장 평가와 별도의 도메인 적용 평가를 대신 수행하지 않는다.
+관점과 무관한 투자 단계·팀 정보 누락을 핵심 근거 부족으로 추가하지 않는다.
+""",
+    "domain": """이번 호출은 도메인 적용(domain) 관점만 담당한다.
+제품이 어느 현장의 어떤 업무에 쓰이는지, 도입 사례·PoC·실제 운영 단계,
+설치·통합·인력·안전 조건과 운영 제약·실패 위험을 확인한다.
+사례는 customer_cases, 도입 조건·제약은 비용·효과·규제·evidence_assessment에
+출처와 함께 기록한다. 시연·유료 PoC·실제 유료 운영을 구분한다.
+다른 제품·현장·시점의 사례를 해당 기업의 현재 적용 실적으로 일반화하지 않는다.
+summary와 추가 information_gaps는 이 관점의 발견과 미확인 항목에 한정한다.
+이해관계자 전체 분석이나 기술·시장 평가를 대신 수행하지 않는다.
+관점과 무관한 투자 단계·팀 정보 누락을 핵심 근거 부족으로 추가하지 않는다.
+""",
+}
+
+
 def create_analysis_model():
     """Initialize without sending requests or loading configuration at import time."""
     from dotenv import load_dotenv
@@ -150,20 +174,26 @@ def analyze_business(
     information_gaps: tuple[str, ...] = (),
     *,
     model: Any = None,
+    view: BusinessView | None = None,
 ) -> BusinessAnalysis:
+    validate_business_view(view)
     payload = {
         "selected_startup": state.get("selected_startup", {}),
         "profile": state.get("profile", {}),
         "information_gaps": list(information_gaps),
         "evidence": [item.model_dump() for item in evidence],
     }
+    prompt = SYSTEM_PROMPT
+    if view is not None:
+        payload["view"] = view
+        prompt += "\n\n" + VIEW_INSTRUCTIONS[view]
     model = model if model is not None else create_analysis_model()
     # Pydantic constraints are validated locally after function-call parsing.
     structured = model.with_structured_output(
         BusinessAnalysis, method="function_calling", strict=False
     )
     output = structured.invoke([
-        ("system", SYSTEM_PROMPT),
+        ("system", prompt),
         ("human", json.dumps(payload, ensure_ascii=False)),
     ])
     available = {item.source_id for item in evidence}

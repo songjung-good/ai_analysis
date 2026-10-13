@@ -8,7 +8,7 @@ from ..models import Evidence
 from ..state import GraphState
 from ..tools import tools_for
 from .business_analysis import analyze_business, cited_source_ids
-from .business_models import BusinessAnalysis
+from .business_models import BusinessAnalysis, BusinessView
 from .business_search import build_search_plan, collect_evidence
 
 
@@ -18,11 +18,12 @@ TOOLS = tools_for("business_analysis")
 def run(
     state: GraphState,
     *,
+    view: BusinessView | None = None,
     search: Callable[..., list[Evidence]] | None = None,
     model: Any = None,
 ) -> NodeResult:
-    """Assess deployment stage, customer impact, and regulatory risk."""
-    plan = build_search_plan(state)
+    """Run legacy business analysis or research one designated business view."""
+    plan = build_search_plan(state, view=view)
     if search is None:
         from dotenv import load_dotenv
 
@@ -32,7 +33,7 @@ def run(
         search = TOOLS[0]
     evidence = collect_evidence(plan, search=search)
     if evidence:
-        result = analyze_business(state, evidence, plan.information_gaps, model=model)
+        result = analyze_business(state, evidence, plan.information_gaps, model=model, view=view)
     else:
         result = BusinessAnalysis(
             commercialization_stage="unknown",
