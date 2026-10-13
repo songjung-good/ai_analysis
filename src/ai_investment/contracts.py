@@ -16,9 +16,24 @@ NODE_WRITES: dict[str, frozenset[str]] = {
         {"candidates", "current_idx", "selected_startup", "references"}
     ),
     "customer_profile": frozenset({"profile", "references"}),
-    "technical_analysis": frozenset({"technical_analysis", "references"}),
+    "technical_analysis": frozenset(
+        {"technical_analysis", "analyses", "references", "node_status", "node_errors"}
+    ),
     "business_analysis": frozenset({"business_analysis", "references"}),
-    "market_analysis": frozenset({"market_analysis", "references"}),
+    "market_analysis": frozenset(
+        {"market_analysis", "analyses", "references", "node_status", "node_errors"}
+    ),
+    "supervisor": frozenset(
+        {"next_views", "rework_count", "rework_hints", "step_count", "eval_result"}
+    ),
+    "technical": frozenset(
+        {"technical_analysis", "analyses", "references", "node_status", "node_errors"}
+    ),
+    "market": frozenset(
+        {"market_analysis", "analyses", "references", "node_status", "node_errors"}
+    ),
+    "stakeholder": frozenset({"analyses", "references", "node_status", "node_errors"}),
+    "domain": frozenset({"analyses", "references", "node_status", "node_errors"}),
     "investment_decision": frozenset(
         {
             "scores",
@@ -28,8 +43,24 @@ NODE_WRITES: dict[str, frozenset[str]] = {
             "evaluations",
         }
     ),
-    "next_candidate": frozenset({"current_idx", "selected_startup"}),
-    "report_generation": frozenset({"report"}),
+    "next_candidate": frozenset(
+        {
+            "current_idx", "selected_startup", "analyses", "node_status", "node_errors",
+            "next_views", "rework_count", "rework_hints", "eval_result",
+            "report_draft", "report_attempts", "report",
+            "profile", "technical_analysis", "business_analysis", "market_analysis",
+            "scores", "investment_score", "decision", "decision_reason",
+            "resume_after_research",
+        }
+    ),
+    "report_generation": frozenset({"report", "report_draft"}),
+    "evaluator": frozenset({"eval_result", "report_attempts", "resume_after_research"}),
+}
+
+WORKER_VIEWS = {
+    "technical": "technical", "technical_analysis": "technical",
+    "market": "market", "market_analysis": "market",
+    "stakeholder": "stakeholder", "domain": "domain",
 }
 
 
@@ -40,6 +71,20 @@ def _validate_update(node_name: str, result: object) -> NodeResult:
     if unexpected:
         keys = ", ".join(sorted(unexpected))
         raise ValueError(f"{node_name} cannot write state keys: {keys}")
+    view = WORKER_VIEWS.get(node_name)
+    if view is not None:
+        for field in ("analyses", "node_status", "node_errors"):
+            if field not in result:
+                continue
+            update = result[field]
+            if not isinstance(update, dict):
+                raise TypeError(f"{node_name}.{field} must be dict")
+            if update.keys() - {view}:
+                raise ValueError(f"{node_name} can only write {field}[{view!r}]")
+        if view in result.get("analyses", {}):
+            analysis = result["analyses"][view]
+            if not isinstance(analysis, dict) or analysis.get("view") != view:
+                raise ValueError(f"{node_name} analysis.view must be {view!r}")
     return result
 
 
@@ -52,6 +97,12 @@ NODE_DESCRIPTIONS: dict[str, str] = {
     "investment_decision": "6단계: 투자 평가 점수 및 최종 판단",
     "next_candidate": "다음 후보 기업 전환",
     "report_generation": "7단계: 투자 보고서 PDF 생성",
+    "supervisor": "관점별 근거 충분성 판단 및 작업 배정",
+    "technical": "기술 성숙도 분석",
+    "market": "시장성 분석",
+    "stakeholder": "이해관계자 분석",
+    "domain": "도메인 적용 분석",
+    "evaluator": "보고서 품질 평가",
 }
 
 

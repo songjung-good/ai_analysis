@@ -10,7 +10,7 @@ from ai_investment.control import route_after_decision, select_next_candidate
 from ai_investment.graph import AgentNodes, build_graph
 from ai_investment.models import Evidence
 from ai_investment.scoring import WEIGHTS, calculate_score
-from ai_investment.state import create_initial_state
+from ai_investment.state import VIEWS, create_initial_state
 from ai_investment.tools.registry import tools_for
 from ai_investment.tools.web import _to_evidence
 
@@ -19,6 +19,46 @@ class InitialStateTests(unittest.TestCase):
     def test_rejects_invalid_iteration_limit(self):
         with self.assertRaisesRegex(ValueError, "max_iterations"):
             create_initial_state(domain="Physical AI", criteria={}, max_iterations=0)
+
+    def test_initializes_supervisor_state_without_fabricated_analysis(self):
+        state = create_initial_state(
+            domain="Physical AI", criteria={}, max_iterations=2,
+            max_steps=12, trace_id="test-run",
+        )
+        self.assertEqual(state["trace_id"], "test-run")
+        self.assertEqual(state["max_steps"], 12)
+        self.assertEqual(state["rework_count"], dict.fromkeys(VIEWS, 0))
+        self.assertEqual(state["next_views"], [])
+        self.assertEqual(state["analyses"], {})
+        self.assertEqual(state["node_status"], {})
+        self.assertEqual(state["step_count"], 0)
+        self.assertEqual(state["report_attempts"], 0)
+        self.assertIsNone(state["eval_result"])
+        self.assertIsNone(state["report_draft"])
+        self.assertEqual(state["node_errors"], {})
+        self.assertEqual(state["resume_after_research"], "investment_decision")
+        for field in ("selected_startup", "business_analysis", "decision", "report"):
+            self.assertNotIn(field, state)
+
+    def test_runs_do_not_share_trace_or_mutable_control_state(self):
+        first, second = [
+            create_initial_state(domain="Physical AI", criteria={}, max_iterations=1)
+            for _ in range(2)
+        ]
+        self.assertTrue(first["trace_id"])
+        self.assertNotEqual(first["trace_id"], second["trace_id"])
+        first["rework_hints"]["stakeholder"].append("비용 부담 확인")
+        first["rework_count"]["stakeholder"] = 1
+        self.assertEqual(second["rework_hints"]["stakeholder"], [])
+        self.assertEqual(first["rework_hints"]["domain"], [])
+        self.assertEqual(second["rework_count"]["stakeholder"], 0)
+
+    def test_rejects_invalid_supervisor_limits_and_trace(self):
+        for override in ({"max_steps": 0}, {"trace_id": "  "}):
+            with self.subTest(override=override), self.assertRaises(ValueError):
+                create_initial_state(
+                    domain="Physical AI", criteria={}, max_iterations=1, **override,
+                )
 
 
 class OwnershipTests(unittest.TestCase):
