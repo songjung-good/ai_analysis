@@ -109,10 +109,10 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(route_after_decision(self.state), "report_generation")
 
     def test_selects_next_candidate(self):
-        self.assertEqual(
-            select_next_candidate(self.state),
-            {"current_idx": 1, "selected_startup": {"name": "B"}},
-        )
+        result = select_next_candidate(self.state)
+        self.assertEqual(result["current_idx"], 1)
+        self.assertEqual(result["selected_startup"], {"name": "B"})
+        self.assertIsNone(result["decision"])  # 이전 후보 결과 초기화 포함
 
 
 class GraphIntegrationTests(unittest.TestCase):

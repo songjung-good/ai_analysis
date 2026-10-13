@@ -72,6 +72,39 @@ class BusinessSearchTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "search unavailable"):
             collect_evidence(plan, search=failing_search)
 
+    def test_rework_changes_only_requested_view_queries_and_keeps_search_limit(self):
+        state = self.input("complete")
+        initial = build_search_plan(state, view="domain")
+        stakeholder = build_search_plan(state, view="stakeholder")
+        state["rework_hints"] = {"domain": [" 안전 정지 조건 ", "안전 정지 조건"]}
+        before = deepcopy(state)
+        rework = build_search_plan(state, view="domain")
+        self.assertNotEqual(initial.queries, rework.queries)
+        self.assertEqual(len(rework.queries), 3)
+        self.assertTrue(all("안전 정지 조건" in query for query in rework.queries))
+        self.assertEqual(rework.rework_hints, ("안전 정지 조건",))
+        self.assertEqual(build_search_plan(state, view="stakeholder"), stakeholder)
+        self.assertEqual(build_search_plan(state).rework_hints, ())
+        self.assertEqual(state, before)
+
+    def test_invalid_rework_hints_fail_before_external_search(self):
+        for hints in ({"domain": "not a list"}, {"domain": [12]}, []):
+            with self.subTest(hints=hints), self.assertRaises(TypeError):
+                build_search_plan({"selected_startup": {"name": "기업"}, "rework_hints": hints},
+                                  view="domain")
+
+    def test_failure_logs_only_the_attempted_query_with_correlation(self):
+        def failing_search(*args, **kwargs):
+            raise RuntimeError("search unavailable")
+
+        plan = build_search_plan(self.input("complete"), view="domain")
+        with self.assertLogs("ai_investment.agents.business_search", level="INFO") as logs:
+            with self.assertRaisesRegex(RuntimeError, "search unavailable"):
+                collect_evidence(plan, search=failing_search, trace_id="test-run", view="domain", attempt=1)
+        self.assertEqual([record.event for record in logs.records], ["search_started", "search_failed"])
+        self.assertTrue(all(record.query == plan.queries[0] for record in logs.records))
+        self.assertTrue(all(record.trace_id == "test-run" and record.attempt == 1 for record in logs.records))
+
 
 if __name__ == "__main__":
     unittest.main()

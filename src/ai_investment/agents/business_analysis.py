@@ -7,7 +7,7 @@ from typing import Any
 
 from ..models import Evidence
 from ..state import GraphState
-from .business_models import BusinessAnalysis
+from .business_models import BusinessAnalysis, BusinessView, validate_business_view
 
 
 SYSTEM_PROMPT = """당신은 Physical AI·Robotics 현장 도입·사업성 분석 담당자다.
@@ -82,6 +82,46 @@ cross_verified는 최소 두 개의 독립된 원 출처가 동일한 구체적 
 """
 
 
+VIEW_INSTRUCTIONS = {
+    "stakeholder": """이번 호출은 이해관계자(stakeholder) 관점만 담당한다.
+고객·구매자·실제 사용자·공급사·파트너를 구분하고 각 주체의 역할, 구매 결정권,
+비용 부담과 기대효과, 이해 충돌을 확인한다. 주체를 확인한 사실과 추론을 구분한다.
+고객 사례는 customer_cases, 비용 부담 근거는 deployment_costs에 기록한다.
+역할·이해 충돌에 관한 주장은 evidence_assessment에 출처·검증 수준과 함께 기록한다.
+view_findings에는 customer_buyer(고객·구매자), user(실제 사용자), supplier(공급사),
+conflicts(이해 충돌), cost_burden(비용 부담) 주제별 확인 내용을 text와 source_ids로 기록한다.
+각 주체의 이름과 역할, 확인된 부담·조건을 text에 명시한다. 다른 관점의 topic은 사용하지 않는다.
+필수 주제를 확인하지 못하면 해당 finding을 만들지 말고 view_missing_items에 남긴다.
+없는 이해 충돌을 생성하거나 자료가 없다는 이유로 이해 충돌이 없다고 단정하지 않는다.
+충돌이 없다는 평가도 확인 범위와 직접 근거가 있을 때만 기록한다.
+summary와 view_missing_items는 이 관점의 발견과 미확인 항목에 한정한다.
+view_missing_items에는 핵심 불확실성과 상충도 기록한다. 입력 메타데이터 누락이나
+다른 관점의 누락을 그대로 복사하지 않는다. information_gaps는 기존 조사 이력용이다.
+summary는 view_findings의 확인 내용과 명시된 한계를 넘지 않는다.
+기술·시장 평가와 별도의 도메인 적용 평가를 대신 수행하지 않는다.
+관점과 무관한 투자 단계·팀 정보 누락을 핵심 근거 부족으로 추가하지 않는다.
+""",
+    "domain": """이번 호출은 도메인 적용(domain) 관점만 담당한다.
+제품이 어느 현장의 어떤 업무에 쓰이는지, 도입 사례·PoC·실제 운영 단계,
+설치·통합·인력·안전 조건과 운영 제약·실패 위험을 확인한다.
+사례는 customer_cases, 도입 조건·제약은 비용·효과·규제·evidence_assessment에
+출처와 함께 기록한다. 시연·유료 PoC·실제 유료 운영을 구분한다.
+view_findings에는 application(적용 현장·업무), deployment(도입 사례·PoC·운영 단계),
+constraints(운영 제약·도입 조건) 주제별 확인 내용을 text와 source_ids로 기록한다.
+제품·현장·시점, 운영 단계와 유료 여부, 제약의 적용 조건을 확인된 범위에서 명시한다.
+다른 관점의 topic은 사용하지 않는다. 필수 주제를 확인하지 못하면 finding을 만들지 말고
+view_missing_items에 남긴다. 근거 없이 적용 가능성이나 제약 없음으로 채우지 않는다.
+다른 제품·현장·시점의 사례를 해당 기업의 현재 적용 실적으로 일반화하지 않는다.
+summary와 view_missing_items는 이 관점의 발견과 미확인 항목에 한정한다.
+view_missing_items에는 핵심 불확실성과 상충도 기록한다. 입력 메타데이터 누락이나
+다른 관점의 누락을 그대로 복사하지 않는다. information_gaps는 기존 조사 이력용이다.
+summary는 view_findings의 확인 내용과 명시된 한계를 넘지 않는다.
+이해관계자 전체 분석이나 기술·시장 평가를 대신 수행하지 않는다.
+관점과 무관한 투자 단계·팀 정보 누락을 핵심 근거 부족으로 추가하지 않는다.
+""",
+}
+
+
 def create_analysis_model():
     """Initialize without sending requests or loading configuration at import time."""
     from dotenv import load_dotenv
@@ -100,6 +140,7 @@ def cited_source_ids(result: BusinessAnalysis) -> set[str]:
     for items in (
         result.customer_cases, result.deployment_costs, result.deployment_effects,
         result.regulatory_risks, result.evidence_assessment,
+        result.view_findings,
     ):
         for item in items:
             cited.update(item.source_ids)
@@ -115,22 +156,21 @@ def _normalize_citations(data: Any, available: set[str]) -> Any:
         s = sid.strip()
         if s in available:
             return s
-        for avail in available:
-            if avail.startswith(s) or s.startswith(avail) or s in avail:
-                return avail
+        matches = [sid for sid in available if len(s) >= 8 and sid.startswith(s)]
+        if len(matches) == 1:
+            return matches[0]
         return s
 
     def walk(obj: Any) -> Any:
         if isinstance(obj, dict):
-            return {k: walk(v) for k, v in obj.items()}
+            return {
+                k: [resolve(sid) for sid in v]
+                if k in {"source_ids", "stage_source_ids"} and isinstance(v, list)
+                and all(isinstance(sid, str) for sid in v) else walk(v)
+                for k, v in obj.items()
+            }
         if isinstance(obj, list):
-            res = []
-            for item in obj:
-                if isinstance(item, str):
-                    res.append(resolve(item))
-                else:
-                    res.append(walk(item))
-            return res
+            return [walk(item) for item in obj]
         return obj
 
     return walk(data)
@@ -150,20 +190,38 @@ def analyze_business(
     information_gaps: tuple[str, ...] = (),
     *,
     model: Any = None,
+    view: BusinessView | None = None,
+    rework_hints: tuple[str, ...] = (),
 ) -> BusinessAnalysis:
+    validate_business_view(view)
     payload = {
         "selected_startup": state.get("selected_startup", {}),
         "profile": state.get("profile", {}),
         "information_gaps": list(information_gaps),
         "evidence": [item.model_dump() for item in evidence],
     }
+    prompt = SYSTEM_PROMPT
+    if view is not None:
+        payload["view"] = view
+        prompt += "\n\n" + VIEW_INSTRUCTIONS[view]
+        if rework_hints:
+            payload["rework_hints"] = list(rework_hints)
+            previous = state.get("analyses", {}).get(view)
+            if previous and previous.get("view") == view and previous.get("status") == "done":
+                payload["previous_result"] = previous
+            prompt += """\n이번 호출은 재작업이다. rework_hints의 누락 항목을 우선 확인한다.
+이전 결과는 검토 대상이며 독립 근거가 아니다. 제공된 Evidence로 다시 확인한 내용만
+유지하고, 보완된 최신 전체 관점 결과를 반환한다. 반대 근거가 있으면 수정한다.
+요청을 받았다는 이유로 누락이 해결되었다고 처리하지 않는다. 확인하지 못한 요청과
+핵심 불확실성은 view_missing_items에 남긴다.
+"""
     model = model if model is not None else create_analysis_model()
     # Pydantic constraints are validated locally after function-call parsing.
     structured = model.with_structured_output(
         BusinessAnalysis, method="function_calling", strict=False
     )
     output = structured.invoke([
-        ("system", SYSTEM_PROMPT),
+        ("system", prompt),
         ("human", json.dumps(payload, ensure_ascii=False)),
     ])
     available = {item.source_id for item in evidence}
