@@ -1,6 +1,6 @@
 # Supervisor 공통 State·쓰기 계약
 
-현재 구현 범위는 공통 State, Reducer, 노드 쓰기 권한이다. 실제 Supervisor·Evaluator·동적 그래프는 각 담당자가 연결한다.
+공통 State·Reducer·쓰기 권한과 Supervisor·Evaluator·동적 그래프를 app.py에 연결했다. 실제 API·LangSmith 캡처는 별도 확인한다.
 
 ## 공통 타입
 
@@ -29,7 +29,7 @@ return {
 - `analyses`·`node_status`: 서로 다른 키를 병합하고 같은 키의 최신 결과로 교체한다.
 - `references`: source_id별 하나만 유지한다. 같은 출처의 새 발췌는 기존 발췌를 보존하며 합친다.
 - `node_errors`: node_status와 동일한 관점 ID로 오류를 조회한다. 병렬 실패를 모두 보존하고, 성공한 작업은 자기 오류만 None으로 갱신한다. 과거 오류 이력은 외부 로그에 남긴다. `last_error`는 제거했다.
-- 하위 작업이 모두 합류한 뒤 Supervisor를 실행하는 그래프 연결은 통합 담당자가 구현한다.
+- 하위 작업이 같은 그래프 superstep에서 합류한 뒤 Supervisor를 실행한다. 진입점 통합 테스트로 네 관점 결과가 모인 뒤 판정하는 것을 확인했다.
 
 ## 후보 전환 초기화
 
@@ -51,7 +51,7 @@ return {
 - 유지: 전체 출처·후보 평가 기록, trace_id, 전역 step_count·상한.
 - 기존 분석 필드와 profile·점수·투자 판단도 후보 전환 시 초기화한다. 초기화된 decision은 None이다. 새 후보 분석이 완료된 뒤에만 투자 판단을 실행한다. 새 analyses를 기존 투자 판단 입력으로 변환하는 작업은 통합 담당자와 분석 담당자가 연결한다.
 - 출처는 실행 전체에서 보존한다. 보고서에는 대상별 결과가 실제 인용한 source_id를 선별한다.
-- 기존 `control.select_next_candidate`는 변경하지 않았다. 위 초기화 연결은 통합 담당자의 작업이다.
+- `control.select_next_candidate`는 공통 초기화 함수를 적용한다. 진입점의 supervised_decision은 stakeholder·domain을 기존 투자 판단 입력으로 변환한다.
 
 ## 쓰기 권한
 
@@ -73,10 +73,10 @@ guard는 최상위 쓰기 키와 하위 Agent의 analyses·node_status·node_err
 ## 평가 재조사와 횟수 기준
 
 - evaluator가 research를 요청하면 `research_hints[view]`에 구체적인 누락·보완 질문을 넣는다.
-- evaluator는 `resume_after_research="report_generation"`을 함께 반환한다. 대상 후보를 유지하고 재조사 후 투자 판단·후보 전환을 반복하지 않는다.
-- Supervisor는 target_views와 research_hints를 rework_hints에 반영한 후 소비한 요청을 해제한다. eval_result의 판정·사유는 유지하되 target_views와 research_hints를 비운다.
+- 통합된 evaluator는 `resume_after_research="investment_decision"`으로 같은 후보의 점수를 다시 계산한다. 보고서 초안이 있는 재조사 단계에서는 후보 전환을 막고 보고서로 복귀하며, 마지막 후보 평가 기록을 교체한다.
+- Supervisor는 target_views와 research_hints를 rework_hints에 반영한 후 eval_result를 비워 요청을 소비한다. 원래 판정과 사유는 외부 로그에 보존한다.
 - Supervisor의 작업 목록이 비면 resume_after_research로 복귀한다. 그래프는 investment_decision과 report_generation 두 경로를 허용해야 한다.
 - report_attempts는 평가 미달 횟수다. 초기값 0, 실패마다 +1. 최대 보완 2회라면 1·2번째 미달은 보완하고, 3번째 미달에서 종료한다. 통과하면 횟수와 관계없이 완료한다.
 - 재조사도 보완 1회로 계산하고 관점별 재작업 상한을 공유한다. 평가 미달 상한이나 필요한 관점의 재작업 상한이 소진되면 미통과 상태로 종료한다.
-- 최종 미통과 사유는 PDF 생성 시점 이후에 생길 수 있다. 종료 전에 최종 eval_result를 반영한 한계 보고서를 다시 출력하고, 품질 통과 보고서와 구분한다. 연결은 보고서·평가·통합 담당자가 구현한다.
-- 위 내용은 공통 계약이다. 실제 Supervisor·Evaluator·그래프·최종 PDF 연결은 아직 구현되지 않았다.
+- 최종 미통과 사유는 PDF 생성 시점 이후에 생길 수 있다. 종료 전에 최종 eval_result를 반영한 한계 보고서를 다시 출력하고, 품질 통과 보고서와 구분한다. final_report 노드에서 구현했다.
+- 연결은 app.py·graph.py·control.py에서 구현했다. Mock 연구·Judge와 실제 PDF 렌더러로 검증했으며 실제 API 판정 품질을 보장한다는 뜻은 아니다.

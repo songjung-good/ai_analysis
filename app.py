@@ -1,7 +1,9 @@
 """Multi-Agent investment analysis pipeline entrypoint."""
 
 import argparse
+import logging
 import sys
+from functools import partial
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -13,13 +15,33 @@ from ai_investment.agents import (
     business_analysis,
     customer_profile,
     investment_decision,
-    market_analysis,
     report_generation,
     startup_discovery,
     technical_analysis,
 )
 from ai_investment.graph import AgentNodes, build_graph
+from ai_investment.agents.market import run_view as market_view
+from ai_investment.agents.report import finalize_report
+from ai_investment.orchestration.evaluator import run as evaluate_report
+from ai_investment.orchestration.supervisor import supervisor
 from ai_investment.state import create_initial_state
+from ai_investment.utils.logger import setup_logging
+
+
+def supervised_decision(state):
+    """Adapt business views and replace this candidate's score after report research."""
+    from langgraph.types import Overwrite
+
+    business = {
+        view: result for view, result in (state.get("analyses") or {}).items()
+        if view in {"stakeholder", "domain"}
+    }
+    update = investment_decision({**state, "business_analysis": business})
+    history = state.get("evaluations") or []
+    if state.get("report_draft") is not None and history and update.get("evaluations"):
+        if history[-1]["startup_name"] == state["selected_startup"]["name"]:
+            update = {**update, "evaluations": Overwrite([*history[:-1], *update["evaluations"]])}
+    return update
 
 
 def parse_args():
@@ -53,25 +75,28 @@ def parse_args():
         default=None,
         help="Direct target startup name to analyze (e.g. 플라잎, 베어로보틱스, Agility Robotics)",
     )
-    return parser.parse_args()
+    parser.add_argument("--max-steps", type=int, default=20, help="Max supervisor calls (default: 20)")
+    args = parser.parse_args()
+    if args.limit < 1:
+        parser.error("--limit must be at least 1")
+    if args.company is not None:
+        args.company = args.company.strip()
+        if not args.company:
+            parser.error("--company must not be empty")
+    return args
 
 
 def main():
-    load_dotenv()
+    load_dotenv(Path(__file__).resolve().parent / ".env")
     args = parse_args()
 
-    # ponytail: allow direct target company for deterministic evaluation
+    # A company name supplies no verified product or funding-stage facts.
     if args.company:
         company_name = args.company.strip()
 
         def targeted_discovery(state):
             print(f"🎯 지정된 기업 '{company_name}' 분석 파이프라인 진입")
-            startup = {
-                "name": company_name,
-                "product": f"{company_name} 로봇 AI 솔루션",
-                "funding_stage": "Series A",
-                "team": [],
-            }
+            startup = {"name": company_name}
             return {
                 "candidates": [startup],
                 "current_idx": 0,
@@ -89,13 +114,18 @@ def main():
         customer_profile=customer_profile,
         technical_analysis=technical_analysis,
         business_analysis=business_analysis,
-        market_analysis=market_analysis,
-        investment_decision=investment_decision,
+        market_analysis=market_view,
+        investment_decision=supervised_decision,
         report_generation=report_generation,
+        supervisor=supervisor,
+        stakeholder=partial(business_analysis, view="stakeholder"),
+        domain=partial(business_analysis, view="domain"),
+        evaluator=evaluate_report,
+        final_report=finalize_report,
     )
 
     print("=" * 60)
-    print("AI 스타트업 투자 평가 Multi-Agent 시스템 시작")
+    print("AI 스타트업 투자 평가 Supervisor 시스템 시작")
     print(f"도메인: {args.domain} | 지역: {args.region} | 후보 한도: {args.limit}")
     print("=" * 60)
 
@@ -104,20 +134,34 @@ def main():
         domain=args.domain,
         criteria={"region": args.region, "candidate_limit": args.limit},
         max_iterations=args.max_iterations,
+        max_steps=args.max_steps,
     )
 
-    final_state = graph.invoke(initial_state)
+    handler = setup_logging(initial_state["trace_id"])
+    print(f"실행 ID: {initial_state['trace_id']}")
+    try:
+        final_state = graph.invoke(initial_state, config={
+            "metadata": {"trace_id": initial_state["trace_id"]},
+            "run_name": f"supervisor-{initial_state['trace_id']}",
+            "recursion_limit": max(100, 2 * args.max_steps + 4 * args.max_iterations + 20),
+        })
+    finally:
+        logging.getLogger("ai_investment").removeHandler(handler)
+        handler.close()
 
     print("\n" + "=" * 60)
     print("분석 완료")
     if "report" in final_state:
         print(f"📄 최종 보고서 생성 경로: {final_state['report']}")
+    verdict = final_state.get("eval_result") or {}
+    print(f"보고서 품질: {'통과' if verdict.get('passed') else '미통과'}")
     if "decision" in final_state:
         print(
             f"📊 최종 투자 판단: {final_state.get('decision')} "
             f"(점수: {final_state.get('investment_score')})"
         )
     print("=" * 60)
+    return final_state
 
 
 if __name__ == "__main__":

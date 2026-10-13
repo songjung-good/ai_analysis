@@ -28,6 +28,7 @@ class AgentNodes:
     stakeholder: Node | None = None
     domain: Node | None = None
     evaluator: Node | None = None
+    final_report: Node | None = None
 
 
 def build_graph(nodes: AgentNodes):
@@ -91,6 +92,11 @@ def build_graph(nodes: AgentNodes):
         add(view, workers[view])
         builder.add_edge(view, "supervisor")
     add("evaluator", nodes.evaluator)
+    terminal = END
+    if nodes.final_report is not None:
+        builder.add_node("final_report", guard_node("report_generation", nodes.final_report))
+        builder.add_edge("final_report", END)
+        terminal = "final_report"
 
     builder.add_edge("customer_profile", "supervisor")
     builder.add_conditional_edges(
@@ -105,11 +111,11 @@ def build_graph(nodes: AgentNodes):
     builder.add_conditional_edges(
         "report_generation",
         route_after_report,
-        {"evaluator": "evaluator", "end": END},
+        {"evaluator": "evaluator", "end": terminal},
     )
     builder.add_conditional_edges(
         "evaluator",
         route_after_evaluation,
-        {"end": END, "supervisor": "supervisor", "report_generation": "report_generation"},
+        {"end": terminal, "supervisor": "supervisor", "report_generation": "report_generation"},
     )
     return builder.compile()

@@ -1,6 +1,8 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
@@ -20,6 +22,14 @@ from ai_investment.orchestration import (  # noqa: E402
 )
 
 from ai_investment.state import create_initial_state, dedupe_by_source_id, merge_dict  # noqa: E402
+
+
+def setUpModule():
+    directory = tempfile.TemporaryDirectory()
+    unittest.addModuleCleanup(directory.cleanup)
+    logging_patch = patch("ai_investment.utils.logger.LOG_DIR", Path(directory.name))
+    logging_patch.start()
+    unittest.addModuleCleanup(logging_patch.stop)
 
 
 def ev(i, host):

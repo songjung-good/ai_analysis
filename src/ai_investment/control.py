@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Literal
 
 from .state import GraphState, candidate_reset_update
+from .orchestration.supervisor import MAX_REWORK
 
 
 Route = Literal["next_candidate", "report_generation"]
@@ -27,6 +28,9 @@ def select_next_candidate(state: GraphState) -> dict[str, object]:
 
 
 def route_after_decision(state: GraphState) -> Route:
+    # 품질 재조사는 같은 후보의 점수만 갱신하고 보고서로 복귀한다.
+    if state.get("report_draft") is not None:
+        return "report_generation"
     decision = state.get("decision")
     if decision == "invest":
         return "report_generation"
@@ -59,6 +63,14 @@ def route_after_evaluation(state: GraphState) -> str:
     verdict = state.get("eval_result") or {}
     if verdict.get("passed"):
         return "end"
+    if not (state.get("selected_startup") or {}).get("name"):
+        return "end"  # 후보가 없으면 조사할 대상도 없으므로 한계 보고서로 종료
     if _exhausted(state):
-        return "report_generation"  # 미통과 사유를 반영한 한계 보고서를 한 번 더 출력
+        return "end"  # 최종 출력 노드에서 평가한 본문을 유지하며 미통과 사유를 반영
+    if verdict.get("action") == "research":
+        targets = verdict.get("target_views") or []
+        if state.get("step_count", 0) >= state.get("max_steps", 20):
+            return "end"
+        if targets and all(state.get("rework_count", {}).get(view, 0) >= MAX_REWORK for view in targets):
+            return "end"
     return "supervisor" if verdict.get("action") == "research" else "report_generation"
