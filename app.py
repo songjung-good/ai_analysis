@@ -80,6 +80,16 @@ def parse_args():
         help="Direct target startup name to analyze (e.g. 플라잎, 베어로보틱스, Agility Robotics)",
     )
     parser.add_argument(
+        "--product",
+        default=None,
+        help="--company와 함께 쓰는 제품 설명. 확인된 내용만 입력한다 (없으면 비워 둠)",
+    )
+    parser.add_argument(
+        "--funding-stage",
+        default=None,
+        help="--company와 함께 쓰는 투자 단계. 확인된 내용만 입력한다 (없으면 비워 둠)",
+    )
+    parser.add_argument(
         "--mode",
         choices=["auto", "supervisor", "legacy"],
         default="auto",
@@ -122,12 +132,14 @@ def main():
 
         def targeted_discovery(state):
             print(f"🎯 지정된 기업 '{company_name}' 분석 파이프라인 진입")
-            startup = {
-                "name": company_name,
-                "product": f"{company_name} 로봇 AI 솔루션",
-                "funding_stage": "Series A",
-                "team": [],
-            }
+            # 확인되지 않은 제품·투자 단계를 임의로 채우지 않는다. 주어진 값만 쓴다.
+            startup = {"name": company_name, "team": []}
+            if args.product:
+                startup["product"] = args.product.strip()
+            if args.funding_stage:
+                startup["funding_stage"] = args.funding_stage.strip()
+            if not startup.get("product"):
+                print("⚠ --product가 없어 제품 설명 없이 진행합니다 (프로필은 '정보 부족'으로 처리)")
             return {
                 "candidates": [startup],
                 "current_idx": 0,
