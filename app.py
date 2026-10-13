@@ -27,13 +27,23 @@ from ai_investment.agents import (  # noqa: E402
 from ai_investment.graph import AgentNodes, build_graph  # noqa: E402
 from ai_investment.state import create_initial_state  # noqa: E402
 
-# supervisor 구조에 필요한 노드의 위치. 팀원이 올린 실제 모듈·함수 이름에 맞게 수정한다.
+def stakeholder_analysis(state):
+    """business 에이전트를 이해관계자 관점으로 호출한다."""
+    return business_analysis(state, view="stakeholder")
+
+
+def domain_analysis(state):
+    """business 에이전트를 도메인 적용 관점으로 호출한다."""
+    return business_analysis(state, view="domain")
+
+
+# supervisor 구조에 필요한 노드의 위치. module이 None이면 이 파일에 정의된 함수를 쓴다.
 # (technical/market은 기존 technical_analysis/market_analysis 함수를 그대로 쓴다)
 SUPERVISOR_NODE_SPEC = {
     "supervisor": ("ai_investment.orchestration.supervisor", "supervisor"),
-    "evaluator": ("ai_investment.orchestration.evaluator", "evaluator"),
-    "stakeholder": ("ai_investment.agents", "stakeholder_analysis"),
-    "domain": ("ai_investment.agents", "domain_analysis"),
+    "evaluator": ("ai_investment.orchestration.evaluator", "run"),
+    "stakeholder": (None, "stakeholder_analysis"),
+    "domain": (None, "domain_analysis"),
 }
 
 
@@ -41,10 +51,12 @@ def load_supervisor_nodes():
     """supervisor 구조에 필요한 노드를 불러온다. (불러온 노드, 없는 노드 목록)를 돌려준다."""
     loaded, missing = {}, []
     for field, (module, attr) in SUPERVISOR_NODE_SPEC.items():
+        label = f"{module or 'app'}.{attr}"
         try:
-            loaded[field] = getattr(importlib.import_module(module), attr)
-        except (ImportError, AttributeError):
-            missing.append(f"{field} ({module}.{attr})")
+            source = globals() if module is None else vars(importlib.import_module(module))
+            loaded[field] = source[attr]
+        except (ImportError, KeyError):
+            missing.append(f"{field} ({label})")
     return loaded, missing
 
 
