@@ -23,6 +23,8 @@ def doc(i, url=None):
     )
 
 
+OWNED_KEYS = {"technical_analysis", "analyses", "references", "node_status", "node_errors"}
+
 STATE = {
     "selected_startup": {"name": "로봇스타트업", "product": "VLA 기반 매니퓰레이터"},
     "profile": {"subdomain": "제조 로봇"},
@@ -186,7 +188,75 @@ class TechnicalAgentTests(unittest.TestCase):
 
         result = guard_node("technical_analysis", technical.run)(STATE)
 
-        self.assertEqual(set(result), {"technical_analysis", "references"})
+        self.assertEqual(set(result), OWNED_KEYS)
+        self.assertEqual(result["node_status"], {"technical": "done"})
+
+    # ── Supervisor 연동 ──────────────────────────────────────────────
+
+    def test_view_result_marks_required_items_without_citation(self):
+        llm = FakeLLM([grade(["S1", "S2"], True, company=True)], analysis_output(["S1"]))
+        self.patch(llm, [doc(1), doc(2)])
+
+        view = technical.run(STATE)["analyses"]["technical"]
+
+        self.assertEqual(view["view"], "technical")
+        self.assertEqual(view["status"], "done")
+        # 성능 근거는 존재하지 않는 출처(S99)라 버려졌고, 제3자 자료 인용이 없어 외부 검증도 미충족
+        self.assertEqual(view["missing_items"], ["성능 근거", "외부 검증"])
+        self.assertEqual(view["source_ids"], ["tech:1"])
+
+    def test_third_party_citation_covers_external_verification(self):
+        output = analysis_output(["S1"])
+        output.performance_evidence = [
+            technical.Claim(statement="현장 성능", basis="third_party", source_ids=["S2"])
+        ]
+        llm = FakeLLM([grade(["S1", "S2"], True, company=True)], output)
+        self.patch(llm, [doc(1), doc(2)])
+
+        view = technical.run(STATE)["analyses"]["technical"]
+
+        self.assertEqual(view["missing_items"], [])
+
+    def test_rework_skips_internal_rewrite_and_keeps_previous_evidence(self):
+        previous = doc(7, url="https://old.example.com/a")
+        state = {
+            **STATE,
+            "rework_hints": {"technical": ["외부 검증"]},
+            "analyses": {"technical": {"view": "technical", "source_ids": ["web:7"]}},
+            "references": [previous],
+            "technical_analysis": {"retrieval": {"queries": ["기존 질의"]}},
+        }
+        # 문헌 grade는 부족이지만 재작업에서는 재작성하지 않고 바로 웹으로 간다.
+        llm = FakeLLM(
+            [grade([], False, missing=["외부 검증"]), grade(["S1"], True, company=True)],
+            analysis_output(["S1", "S2"]),
+        )
+        tech, web = self.patch(llm, [doc(1)], web_docs=[doc(10, url="https://news.example.com/a")])
+
+        result = technical.run(state)
+
+        self.assertEqual(llm.calls.count("QueryPlan"), 1)  # 힌트 기반 질의 1회, 재작성 루프 없음
+        self.assertEqual(tech.call_count, 2)               # 질의 2개 x 1회
+        self.assertEqual(web.call_count, 3)                # 기본 2개 + 힌트 1개
+        self.assertIn("고객 도입 사례", web.call_args_list[-1].args[0])
+        retrieval = result["technical_analysis"]["retrieval"]
+        self.assertEqual(retrieval["rewrite_count"], 0)
+        self.assertEqual(retrieval["rework_hints"], ["외부 검증"])
+        # 직전 근거(web:7)가 분석 후보로 다시 들어가 인용 가능
+        self.assertIn("web:7", {e.source_id for e in result["references"]})
+
+    def test_api_error_returns_failed_instead_of_raising(self):
+        def broken(schema, prompt):
+            raise ConnectionError("network down")
+
+        self.patch(broken, [doc(1)])
+
+        result = technical.run(STATE)
+
+        self.assertEqual(result["node_status"], {"technical": "failed"})
+        self.assertEqual(result["analyses"]["technical"]["status"], "failed")
+        self.assertIn("ConnectionError", result["node_errors"]["technical"])
+        self.assertNotIn("technical_analysis", result)
 
 
 # ---------------------------------------------------------------------------
@@ -232,7 +302,7 @@ class TechnicalLiveSmokeTest(unittest.TestCase):
             _print_live_result(cls.result)
 
     def test_writes_only_owned_state_keys(self):
-        self.assertEqual(set(self.result), {"technical_analysis", "references"})
+        self.assertEqual(set(self.result), OWNED_KEYS)
 
     def test_output_has_required_fields(self):
         for key in (
