@@ -71,6 +71,20 @@ class BusinessAnalysisTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "model unavailable"):
             analyze_business({}, [], model=FakeModel(RuntimeError("model unavailable")))
 
+    def test_citation_prefix_repair_is_unambiguous_and_does_not_change_gap_text(self):
+        output = unknown_output()
+        output.update(
+            commercialization_stage="pilot", stage_source_ids=["12345678"],
+            information_gaps=["12345678"],
+        )
+        evidence = [Evidence(source_id="12345678aaaa", title="자료", excerpt="시험 운영")]
+        result = analyze_business({}, evidence, model=FakeModel(output))
+        self.assertEqual(result.stage_source_ids, ["12345678aaaa"])
+        self.assertEqual(result.information_gaps, ["12345678"])
+        evidence.append(Evidence(source_id="12345678bbbb", title="다른 자료", excerpt="다른 운영"))
+        with self.assertRaisesRegex(ValueError, "Unknown evidence source IDs"):
+            analyze_business({}, evidence, model=FakeModel(output))
+
 
 if __name__ == "__main__":
     unittest.main()
