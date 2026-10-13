@@ -16,7 +16,7 @@
 - report_draft: {섹션명: [{"text": str, "source_ids": [str]}]}   (report 노드가 저장)
 - references:   list[Evidence | dict]  (source_id, title, url, excerpt)
 - report_attempts: int
-출력 State: eval_result, report_attempts
+출력 State: eval_result, report_attempts, resume_after_research
 """
 from __future__ import annotations
 
@@ -28,6 +28,9 @@ from typing import Any, Literal, TypedDict
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
+
+from ..state import EvalItem as ItemVerdict
+from ..state import EvalVerdict
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +49,7 @@ ITEMS = ("groundedness", "neutrality", "bias_control", "coverage")
 MAX_UNCITED_RATIO = 0.2      # 관점·리스크 섹션에서 출처 없는 문단 비율 상한
 MIN_DOMAINS_PER_VIEW = 2     # 관점별 서로 다른 출처 도메인 수
 MAX_SINGLE_SOURCE_SHARE = 0.5  # 전체 인용 중 한 출처가 차지하는 비중 상한
-MAX_REPORT_ATTEMPTS = 2      # 미달 허용 횟수. 넘으면 종료
+MAX_REPORT_ATTEMPTS = 3      # state.py 계약: 최초 초안 + 보완 2회, 3번째 미달에 종료
 EXCERPT_CHARS = 500
 BANNED_PHRASES = (
     "압도적", "무조건", "확실한 수익", "독보적", "반드시 투자", "최고의 투자", "리스크가 없",
@@ -54,20 +57,6 @@ BANNED_PHRASES = (
 )
 
 Action = Literal["pass", "rewrite", "research"]
-
-
-class ItemVerdict(TypedDict):
-    passed: bool
-    reason: str
-
-
-class EvalVerdict(TypedDict):
-    passed: bool
-    items: dict[str, ItemVerdict]
-    action: Action
-    target_views: list[str]
-    feedback: list[str]
-    attempt: int
 
 
 # ── 1. 규칙 검사 ────────────────────────────────────────────────────────────
@@ -262,10 +251,10 @@ def run_judge(judge: Callable[[str], JudgeOutput], prompt: str, retries: int = 1
 
 
 # ── 3. 판정 종합 ────────────────────────────────────────────────────────────
-def combine(rules: Mapping[str, RuleResult], judge: JudgeOutput | None,
-            attempt: int) -> EvalVerdict:
+def combine(rules: Mapping[str, RuleResult], judge: JudgeOutput | None) -> EvalVerdict:
     items: dict[str, ItemVerdict] = {}
     research_views: set[str] = set()
+    research_hints: dict[str, list[str]] = {}
     feedback: list[str] = []
 
     for key in ITEMS:
@@ -276,6 +265,8 @@ def combine(rules: Mapping[str, RuleResult], judge: JudgeOutput | None,
             # 출처 부족·관점 공백은 근거 문제 -> 재조사, 그 외(인용 오류)는 재작성
             if key in ("bias_control", "coverage") and rule["views"]:
                 research_views.update(rule["views"])
+                for view in rule["views"]:
+                    research_hints.setdefault(view, []).append(rule["reason"])
             else:
                 feedback.append(f"{key}: {rule['reason']}")
         elif judge is None:
@@ -285,6 +276,8 @@ def combine(rules: Mapping[str, RuleResult], judge: JudgeOutput | None,
             if not j.passed:
                 valid = [v for v in j.problem_views if v in VIEW_SECTIONS]
                 research_views.update(valid)
+                for view in valid:
+                    research_hints.setdefault(view, []).append(j.reason)
                 feedback.extend(f"{key}: {fix}" for fix in j.fix)
                 if not valid and not j.fix:
                     feedback.append(f"{key}: {j.reason}")
@@ -299,14 +292,16 @@ def combine(rules: Mapping[str, RuleResult], judge: JudgeOutput | None,
         feedback.append("평가 재시도: 이전 Judge 호출이 실패함")
     else:
         action = "rewrite"
-    return EvalVerdict(
+    verdict = EvalVerdict(
         passed=passed,
         items=items,
         action=action,
         target_views=sorted(research_views),
         feedback=feedback,
-        attempt=attempt,
     )
+    if action == "research":  # supervisor가 rework_hints로 그대로 넘길 수 있게 관점별 사유
+        verdict["research_hints"] = {v: research_hints.get(v, []) for v in sorted(research_views)}
+    return verdict
 
 
 def _refs_by_id(references: Iterable[Any]) -> dict[str, Any]:
@@ -325,7 +320,7 @@ def evaluate(state: Mapping[str, Any], *, judge: Callable[[str], JudgeOutput] | 
     judge_out = None
     if not hard_fail:  # 규칙 확실 실패면 Judge 비용을 쓰지 않는다
         judge_out = run_judge(judge or default_judge(), build_judge_prompt(draft, refs, rules))
-    verdict = combine(rules, judge_out, attempt)
+    verdict = combine(rules, judge_out)
     if hard_fail:  # Judge를 안 돌린 항목은 "미평가"로 표시만 바꾸고 판정 자체는 유지
         for key, rule in rules.items():
             if rule["passed"]:
@@ -338,10 +333,14 @@ def evaluate(state: Mapping[str, Any], *, judge: Callable[[str], JudgeOutput] | 
                "reason": {k: v["reason"] for k, v in verdict["items"].items()},
                "target_views": verdict["target_views"], "attempt": attempt},
     )
-    return {
+    update: dict[str, Any] = {
         "eval_result": verdict,
         "report_attempts": attempt + (0 if verdict["passed"] else 1),
     }
+    if verdict["action"] == "research":
+        # 재조사로 근거가 바뀌면 점수도 바뀔 수 있으므로 투자 판단부터 다시 거친다.
+        update["resume_after_research"] = "investment_decision"
+    return update
 
 
 def run(state: Mapping[str, Any]) -> dict[str, Any]:

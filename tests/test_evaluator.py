@@ -5,6 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
+from ai_investment.contracts import guard_node
 from ai_investment.models import Evidence
 from ai_investment.orchestration import evaluator as ev
 from ai_investment.orchestration.evaluator import JudgeItem, JudgeOutput
@@ -123,6 +124,8 @@ class EvaluateTests(unittest.TestCase):
         self.assertEqual(v["action"], "research")
         self.assertIn("domain", v["target_views"])
         self.assertEqual(out["report_attempts"], 1)
+        self.assertIn("비어 있는 관점: domain", v["research_hints"]["domain"])
+        self.assertEqual(out["resume_after_research"], "investment_decision")
         self.assertEqual(ev.route_after_eval({**state(d), **out}), "supervisor")
 
     def test_judge_style_problem_requests_rewrite(self):
@@ -154,6 +157,23 @@ class EvaluateTests(unittest.TestCase):
         out = ev.evaluate(state(d, attempts=ev.MAX_REPORT_ATTEMPTS - 1), judge=judge_all(True))
         self.assertEqual(out["report_attempts"], ev.MAX_REPORT_ATTEMPTS)
         self.assertEqual(ev.route_after_eval({**state(d), **out}), "end")
+
+
+class ContractTests(unittest.TestCase):
+    def test_evaluator_passes_write_contract(self):
+        d = good_draft()
+        d["domain"] = []
+        node = guard_node("evaluator", lambda s: ev.evaluate(s, judge=judge_all(True)))
+        self.assertEqual(node(state(d))["eval_result"]["action"], "research")
+        node = guard_node("evaluator", lambda s: ev.evaluate(s, judge=judge_all(True)))
+        self.assertTrue(node(state(good_draft()))["eval_result"]["passed"])
+
+    def test_attempt_limit_matches_state_contract(self):
+        # state.py: 최초 초안 + 보완 2회, 3번째 미달에 종료
+        self.assertEqual(ev.route_after_eval({"eval_result": {"passed": False, "action": "rewrite"},
+                                              "report_attempts": 2}), "report_generation")
+        self.assertEqual(ev.route_after_eval({"eval_result": {"passed": False, "action": "rewrite"},
+                                              "report_attempts": 3}), "end")
 
 
 if __name__ == "__main__":

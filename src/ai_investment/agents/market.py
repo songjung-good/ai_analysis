@@ -840,10 +840,11 @@ def run_view(state: GraphState, *, llm=None, search=None, web=None) -> NodeResul
                                     "missing_items": ["시장 분석 실행 실패"], "source_ids": [],
                                     "status": "failed"}},
             "node_status": {"market": "failed"},
-            "last_error": f"market: {type(exc).__name__}: {exc}"[:300],
+            "node_errors": {"market": f"{type(exc).__name__}: {exc}"[:300]},
         }
     return {
         **result,
         "analyses": {"market": to_view_result(result["market_analysis"])},
         "node_status": {"market": "done"},
+        "node_errors": {"market": None},
     }
