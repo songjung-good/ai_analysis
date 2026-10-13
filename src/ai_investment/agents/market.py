@@ -223,6 +223,31 @@ def build_questions(startup: Mapping[str, Any], profile: Mapping[str, Any]) -> d
     }
 
 
+# 재작업 힌트를 어느 주제 질문에 붙일지 고르는 키워드. 어디에도 안 맞으면 market.
+HINT_TOPIC_KEYWORDS: dict[Topic, tuple[str, ...]] = {
+    "competition": ("경쟁", "차별", "진입장벽", "진입 장벽", "대체"),
+    "demand": ("수요", "고객", "도입", "구매", "비용"),
+}
+
+
+def apply_rework_hints(questions: dict[Topic, str], hints: Sequence[str]) -> dict[Topic, str]:
+    """Supervisor가 준 누락 항목을 관련 주제 질문 뒤에 붙인다. 힌트가 없으면 그대로."""
+    extra: dict[Topic, list[str]] = {topic: [] for topic in questions}
+    for hint in hints:
+        text = str(hint).strip()
+        if not text:
+            continue
+        topic: Topic = next(
+            (t for t, words in HINT_TOPIC_KEYWORDS.items() if any(w in text for w in words)),
+            "market",
+        )
+        extra[topic].append(text)
+    return {
+        topic: f"{question} {' '.join(extra[topic])}".strip() if extra[topic] else question
+        for topic, question in questions.items()
+    }
+
+
 def resolve_segment(profile: Mapping[str, Any]) -> tuple[str | None, tuple[str, ...]] | None:
     """Explicit profile.industry/tech_type win over the subdomain mapping."""
     if profile.get("industry") or profile.get("tech_type"):
@@ -713,7 +738,8 @@ def analyze(state: GraphState, *, llm, search=None, web=None) -> NodeResult:
     rows, map_evidence, narrative = fetch_landscape(segment, retrieve) if segment else ([], {}, {})
     selected = select_competitors(rows, narrative, str(startup["name"]))
 
-    questions = build_questions(startup, profile)
+    hints = (state.get("rework_hints") or {}).get("market") or []
+    questions = apply_rework_hints(build_questions(startup, profile), hints)
     with ThreadPoolExecutor(max_workers=len(questions)) as pool:
         futures = {topic: pool.submit(run_crag, crag, q) for topic, q in questions.items()}
         results: dict[Topic, CragResult] = {t: f.result() for t, f in futures.items()}
@@ -770,6 +796,54 @@ def analyze(state: GraphState, *, llm, search=None, web=None) -> NodeResult:
     }
 
 
+def to_view_result(output: Mapping[str, Any]) -> dict[str, Any]:
+    """MarketAnalysisOutput(dict) -> Supervisor 공통 관점 결과(ViewResult).
+
+    기존 market_analysis 계약은 그대로 두고, Supervisor 충분성 판단에 필요한 형태로만 변환한다.
+    """
+    analysis = MarketAnalysisOutput.model_validate(output)
+    claims = [
+        *({"text": f"{f.metric} {f.value:g}{f.unit} ({f.year}, {f.region})", "source_ids": f.source_ids}
+          for f in [*analysis.market_size, *analysis.growth]),
+        *({"text": c.claim, "source_ids": c.source_ids} for c in analysis.demand_drivers),
+        *({"text": f"경쟁사 {c.name}: {c.differentiator}", "source_ids": c.source_ids}
+          for c in analysis.competitors),
+        *({"text": c.claim, "source_ids": c.source_ids}
+          for c in [*analysis.differentiation.strengths, *analysis.differentiation.weaknesses,
+                    *analysis.differentiation.entry_barriers]),
+    ]
+    return {
+        "view": "market",
+        "summary": analysis.summary,
+        "claims": claims,
+        "missing_items": list(analysis.missing_info),
+        "source_ids": sorted(analysis.source_tiers),
+        "status": "done",
+    }
+
+
 def run(state: GraphState) -> NodeResult:
     """Assess market opportunity and competitors with CRAG."""
     return analyze(state, llm=_default_llm())
+
+
+def run_view(state: GraphState, *, llm=None, search=None, web=None) -> NodeResult:
+    """Supervisor 그래프용 market 노드. 기존 결과 + 공통 관점 결과(analyses.market)를 함께 반환한다.
+
+    실패해도 그래프를 죽이지 않고 status=failed로 돌려 Supervisor가 재시도를 판단하게 한다.
+    """
+    try:
+        result = analyze(state, llm=llm or _default_llm(), search=search, web=web)
+    except Exception as exc:  # noqa: BLE001 - 실패 사유를 State에 남기고 재시도는 Supervisor가 결정
+        return {
+            "analyses": {"market": {"view": "market", "summary": "", "claims": [],
+                                    "missing_items": ["시장 분석 실행 실패"], "source_ids": [],
+                                    "status": "failed"}},
+            "node_status": {"market": "failed"},
+            "last_error": f"market: {type(exc).__name__}: {exc}"[:300],
+        }
+    return {
+        **result,
+        "analyses": {"market": to_view_result(result["market_analysis"])},
+        "node_status": {"market": "done"},
+    }
