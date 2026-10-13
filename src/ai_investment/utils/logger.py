@@ -7,6 +7,8 @@ LOG_DIR = Path("outputs/logs")
 
 
 def log_decision(trace_id, node, decision, reasons=None):
+    trace_id = trace_id or "no-trace"
+    trace_id = trace_id or "no-trace"
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     rec = {
         "trace_id": trace_id,
