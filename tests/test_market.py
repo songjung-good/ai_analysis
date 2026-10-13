@@ -1,3 +1,5 @@
+import contextlib
+import io
 import sys
 import unittest
 from pathlib import Path
@@ -453,6 +455,61 @@ class SourcePolicyTests(unittest.TestCase):
         )
         self.assertEqual([(f.value, f.year) for f in kept], [(19.9, "2024"), (21, "2025")])
         self.assertEqual(conflicts, ["협동로봇 시장 규모 59.28억 달러 (2024) vs 19.9억 달러"])
+
+
+class MarketViewTests(unittest.TestCase):
+    """Supervisor 전환: 재작업 힌트 반영, 공통 관점 결과 변환, 실패 시 status=failed."""
+
+    STATE = MarketAgentTests.STATE
+    _analysis = MarketAgentTests._analysis
+
+    def _search(self, q):
+        return [
+            evidence("a", excerpt="협동로봇 64,542대, 전년 대비 +12%"),
+            evidence("b", excerpt="제조·산업 AI·SW 플랫폼 스타트업: Tommoro Robotics, PLAIF(플라잎)"),
+        ]
+
+    def test_rework_hints_go_to_matching_topic(self):
+        base = market.build_questions(self.STATE["selected_startup"], self.STATE["profile"])
+        q = market.apply_rework_hints(base, ["경쟁사 점유율", "TAM 근거", ""])
+        self.assertTrue(q["competition"].endswith("경쟁사 점유율"))
+        self.assertTrue(q["market"].endswith("TAM 근거"))
+        self.assertEqual(q["demand"], base["demand"])
+        self.assertEqual(market.apply_rework_hints(base, []), base)
+
+    def test_analyze_uses_rework_hints_in_queries(self):
+        llm = FakeLLM({"a", "b"}, self._analysis())
+        state = {**self.STATE, "rework_hints": {"market": ["TAM 근거"]}}
+        result = market.analyze(state, llm=llm, search=self._search, web=lambda q: [])
+        queries = result["market_analysis"]["retrieval"]["market"]["queries"]
+        self.assertTrue(any("TAM 근거" in q for q in queries))
+
+    def test_run_view_returns_view_result(self):
+        llm = FakeLLM({"a", "b"}, self._analysis())
+        result = market.run_view(self.STATE, llm=llm, search=self._search, web=lambda q: [])
+        view = result["analyses"]["market"]
+        self.assertEqual(view["view"], "market")
+        self.assertEqual(view["status"], "done")
+        self.assertEqual(view["source_ids"], ["a", "b"])
+        self.assertEqual(view["missing_items"], [])
+        self.assertTrue(all(c["source_ids"] for c in view["claims"]))
+        self.assertEqual(result["node_status"], {"market": "done"})
+        self.assertIn("market_analysis", result)
+
+    def test_run_view_marks_failure_instead_of_raising(self):
+        node = guard_node("market", lambda s: market.run_view(s, llm=FakeLLM(set())))
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = node({"selected_startup": {"name": "A"}})
+        self.assertEqual(result["analyses"]["market"]["status"], "failed")
+        self.assertEqual(result["node_status"], {"market": "failed"})
+        self.assertIn("ValueError", result["node_errors"]["market"])
+
+    def test_run_view_passes_market_write_contract(self):
+        llm = FakeLLM({"a", "b"}, self._analysis())
+        node = guard_node("market", lambda s: market.run_view(s, llm=llm, search=self._search, web=lambda q: []))
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = node(self.STATE)
+        self.assertEqual(result["node_errors"], {"market": None})
 
 
 if __name__ == "__main__":
